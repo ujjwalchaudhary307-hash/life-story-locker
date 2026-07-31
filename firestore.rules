@@ -1,0 +1,28 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isOwner(uid) {
+      return request.auth != null && request.auth.uid == uid;
+    }
+
+    match /users/{uid} {
+      allow read, write: if isOwner(uid);
+
+      match /settings/{settingsDoc} {
+        allow read, write: if isOwner(uid);
+      }
+
+      match /memories/{memoryId} {
+        allow read: if isOwner(uid) || resource.data.visibility == 'public';
+        allow create: if isOwner(uid) && request.resource.data.userId == uid;
+        allow update, delete: if isOwner(uid);
+      }
+    }
+
+    // Collection-group read for the Society drawer's cross-user public feed.
+    match /{path=**}/memories/{memoryId} {
+      allow read: if resource.data.visibility == 'public';
+    }
+  }
+}

@@ -1,4 +1,4 @@
- :root{
+:root{
     --bg:#08090c; --bg2:#0f1116;
     --glass:rgba(255,255,255,0.045); --glass-hover:rgba(255,255,255,0.07); --glass-border:rgba(255,255,255,0.09);
     --gold:#d4af6a; --gold-dim:#8a7345;
@@ -133,7 +133,7 @@
   form.entry-form label{ display:block; font-family:'IBM Plex Mono',monospace; font-size:0.68rem; color:var(--gold); text-transform:uppercase; letter-spacing:0.05em; margin:16px 0 7px; }
   form.entry-form label:first-of-type{ margin-top:0; }
   form.entry-form .hint{ font-family:'Fraunces',serif; font-style:italic; color:var(--muted); font-size:0.84rem; margin-bottom:6px; display:block; }
-  input[type=text], input[type=date], textarea, select{ width:100%; background:rgba(0,0,0,0.28); border:1px solid var(--glass-border); color:var(--text); padding:11px 13px; font-family:'Inter',sans-serif; font-size:0.94rem; border-radius:10px; }
+  input[type=text], input[type=date], input[type=email], input[type=password], textarea, select{ width:100%; background:rgba(0,0,0,0.28); border:1px solid var(--glass-border); color:var(--text); padding:11px 13px; font-family:'Inter',sans-serif; font-size:0.94rem; border-radius:10px; }
   input:focus, textarea:focus, select:focus{ outline:none; border-color:var(--gold); }
   textarea{ resize:vertical; min-height:66px; }
   select{ font-family:'IBM Plex Mono',monospace; font-size:0.8rem; cursor:pointer; }
@@ -208,3 +208,38 @@
   .roadmap-item b{ display:block; color:var(--text); font-family:'Inter',sans-serif; font-size:0.84rem; margin-bottom:3px; }
 
   footer{ position:relative; z-index:1; padding:26px clamp(20px,5vw,64px); text-align:center; font-family:'IBM Plex Mono',monospace; font-size:0.68rem; color:var(--muted2); border-top:1px solid var(--glass-border); }
+
+  /* ---------- AUTH ---------- */
+  .auth-area{ display:flex; align-items:center; gap:10px; }
+  .auth-pill{
+    display:flex; align-items:center; gap:8px; font-family:'IBM Plex Mono',monospace; font-size:0.72rem;
+    color:var(--muted); background:var(--glass); border:1px solid var(--glass-border); border-radius:999px; padding:8px 14px;
+  }
+  .auth-pill .avatar{ width:20px; height:20px; border-radius:50%; background:var(--gold); color:#1a1305; font-family:'Fraunces',serif; font-weight:700; font-size:0.7rem; display:flex; align-items:center; justify-content:center; }
+  .auth-overlay{
+    position:fixed; inset:0; z-index:100; display:none; align-items:center; justify-content:center;
+    background:rgba(5,6,10,0.7); backdrop-filter:blur(6px); padding:20px;
+  }
+  .auth-overlay.open{ display:flex; }
+  .auth-modal{
+    position:relative; width:100%; max-width:380px; background:#101219; border:1px solid var(--glass-border);
+    border-radius:16px; padding:30px 28px; box-shadow:0 30px 80px -30px rgba(0,0,0,0.7);
+  }
+  .auth-modal input{ background:rgba(0,0,0,0.3); }
+  .auth-close{ position:absolute; top:14px; right:16px; background:none; border:none; color:var(--muted); font-size:1.3rem; line-height:1; }
+  .auth-close:hover{ color:var(--text); }
+  .auth-error{ font-family:'IBM Plex Mono',monospace; font-size:0.72rem; color:#e08a7a; min-height:1.2em; }
+  .auth-switch{ margin-top:18px; text-align:center; font-family:'IBM Plex Mono',monospace; font-size:0.72rem; color:var(--muted); }
+  .auth-switch button{ background:none; border:none; color:var(--gold); text-decoration:underline; font-family:inherit; font-size:inherit; padding:0; }
+  .auth-gate{ text-align:center; padding:34px 20px; border:1px dashed var(--glass-border); border-radius:12px; color:var(--muted); }
+  .auth-gate p{ font-family:'Fraunces',serif; font-style:italic; margin-bottom:16px; }
+
+  /* ---------- LIGHT MODE (theme toggle) ---------- */
+  body.light-mode{
+    --bg:#f7f2e6; --bg2:#ece3cd;
+    --glass:rgba(20,15,5,0.035); --glass-hover:rgba(20,15,5,0.07); --glass-border:rgba(20,15,5,0.14);
+    --text:#20190f; --muted:#5f5642; --muted2:#847a62;
+  }
+  body.light-mode .atmosphere{ opacity:0.25; }
+  body.light-mode .hero-stars, body.light-mode canvas#dust, body.light-mode canvas#embers{ opacity:0.25; }
+  .theme-toggle{ font-size:0.95rem; line-height:1; padding:11px 14px; }

@@ -9,7 +9,6 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js"></script>
 <link rel="stylesheet" href="css/style.css">
- 
 </head>
 <body>
 <div class="atmosphere" id="atmosphere"></div>
@@ -19,6 +18,11 @@
   <div class="brand">
     <div class="brand-mark"></div>
     <div><div class="brand-name">Life Story Locker</div><div class="brand-tag">A HUMAN UNDERSTANDING INFRASTRUCTURE</div></div>
+  </div>
+  <div class="auth-area" id="authArea">
+    <button class="btn magnetic theme-toggle" id="themeToggle" title="Toggle light/dark">🌙</button>
+    <button class="btn magnetic" id="loginBtn">Log in</button>
+    <button class="btn magnetic" id="signupBtn">Sign up</button>
   </div>
   <button class="btn solid magnetic" onclick="document.getElementById('locker').scrollIntoView({behavior:'smooth'})">Open the locker</button>
 </div>
@@ -118,20 +122,73 @@
 <section class="roadmap">
   <div class="roadmap-box reveal">
     <span class="eyebrow">Honest scope note</span>
-    <h3 style="margin-top:12px;">What this prototype is — and isn't, yet</h3>
-    <p>This runs entirely in your browser: entries save locally, nothing touches a server. It's built so you can feel the experience before we commit to real infrastructure.</p>
+    <h3 style="margin-top:12px;">What this build is — and isn't, yet</h3>
+    <p>Auth and every drawer's data now run through Firebase for real — Authentication + Firestore, no browser-only storage left. Nothing here is decorative.</p>
     <div class="roadmap-grid">
-      <div class="roadmap-item"><b>Accounts, sync, sharing</b>Needs a real backend and auth.</div>
-      <div class="roadmap-item"><b>AI Memory Historian</b>Needs a live model connection.</div>
-      <div class="roadmap-item"><b>Encryption</b>A security architecture decision, not a UI toggle.</div>
-      <div class="roadmap-item"><b>Photos, video, voice</b>Needs real file storage.</div>
+      <div class="roadmap-item"><b>Photos, video, voice</b>Needs Firebase Storage + Blaze billing — a cost decision, not made for you.</div>
+      <div class="roadmap-item"><b>AI Memory Historian</b>Needs a live model connection and an API key.</div>
+      <div class="roadmap-item"><b>Legacy unlock-date enforcement</b>Currently UI-only — a signed-in owner could read their own sealed entry early via devtools.</div>
+      <div class="roadmap-item"><b>Rate limiting / App Check</b>Not yet configured — recommended before real traffic.</div>
     </div>
   </div>
 </section>
 
-<footer>Life Story Locker — cinematic design prototype. Entries live in this browser; Society entries are shared with everyone using this page.</footer>
+<footer>Life Story Locker — Firebase-backed. Society entries are public to everyone visiting this site; every other drawer is private to your account.</footer>
 </div>
 
-<script src="js/script.js"></script>
+<!-- AUTH MODAL -->
+<div class="auth-overlay" id="authOverlay">
+  <div class="auth-modal">
+    <button class="auth-close" id="authClose" aria-label="Close">×</button>
+    <div class="chapter-tag" id="authTitleTag">Sign in to the locker</div>
+    <h3 style="font-family:'Fraunces',serif; font-size:1.4rem; margin-bottom:6px;" id="authHeading">Welcome back</h3>
+    <p style="color:var(--muted); font-size:0.9rem; margin-bottom:20px;" id="authSub">Your entries are private to your account.</p>
+
+    <button type="button" class="btn" id="googleBtn" style="width:100%; margin-bottom:18px; display:flex; align-items:center; justify-content:center; gap:8px;">
+      <span aria-hidden="true">G</span> Continue with Google
+    </button>
+    <div style="display:flex; align-items:center; gap:10px; margin-bottom:16px;">
+      <div style="flex:1; height:1px; background:var(--glass-border);"></div>
+      <span style="font-family:'IBM Plex Mono',monospace; font-size:0.66rem; color:var(--muted);">OR</span>
+      <div style="flex:1; height:1px; background:var(--glass-border);"></div>
+    </div>
+
+    <form id="authForm">
+      <label style="display:block; font-family:'IBM Plex Mono',monospace; font-size:0.68rem; color:var(--gold); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:6px;">Email</label>
+      <input type="email" id="authEmail" required style="margin-bottom:14px;">
+      <label style="display:block; font-family:'IBM Plex Mono',monospace; font-size:0.68rem; color:var(--gold); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:6px;">Password</label>
+      <input type="password" id="authPassword" required minlength="6" style="margin-bottom:10px;">
+
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;">
+        <label style="display:flex; align-items:center; gap:7px; font-family:'IBM Plex Mono',monospace; font-size:0.72rem; color:var(--muted); text-transform:none; letter-spacing:0; margin:0;">
+          <input type="checkbox" id="rememberMe" checked style="width:auto;"> Remember me
+        </label>
+        <button type="button" id="forgotPasswordBtn" style="background:none; border:none; padding:0; font-family:'IBM Plex Mono',monospace; font-size:0.72rem; color:var(--gold); text-decoration:underline;">Forgot password?</button>
+      </div>
+
+      <div class="auth-error" id="authError"></div>
+      <button type="submit" class="btn solid" style="width:100%; margin-top:14px;" id="authSubmitBtn">Log in</button>
+    </form>
+    <div class="auth-switch" id="authSwitch">Don't have an account? <button id="authToggleMode">Sign up</button></div>
+  </div>
+</div>
+
+<!-- PROFILE MODAL -->
+<div class="auth-overlay" id="profileOverlay">
+  <div class="auth-modal">
+    <button class="auth-close" id="profileClose" aria-label="Close">×</button>
+    <div class="chapter-tag">Your profile</div>
+    <h3 style="font-family:'Fraunces',serif; font-size:1.4rem; margin-bottom:20px;">Edit profile</h3>
+    <form id="profileForm">
+      <label style="display:block; font-family:'IBM Plex Mono',monospace; font-size:0.68rem; color:var(--gold); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:6px;">Display name</label>
+      <input type="text" id="profileName" required style="margin-bottom:8px;">
+      <div class="auth-error" id="profileError"></div>
+      <button type="submit" class="btn solid" style="width:100%; margin-top:14px;">Save changes</button>
+    </form>
+  </div>
+</div>
+
+<script type="module" src="js/firebase.js"></script>
+<script type="module" src="js/script.js"></script>
 </body>
 </html>
