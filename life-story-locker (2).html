@@ -1,0 +1,668 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Life Story Locker — A museum of one life</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,450;9..144,600;9..144,700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js"></script>
+<style>
+  :root{
+    --bg:#08090c; --bg2:#0f1116;
+    --glass:rgba(255,255,255,0.045); --glass-hover:rgba(255,255,255,0.07); --glass-border:rgba(255,255,255,0.09);
+    --gold:#d4af6a; --gold-dim:#8a7345;
+    --text:#eef0f3; --muted:#8b8f9a; --muted2:#5c606c;
+    --personal:#b79bd0; --family:#e0a06b; --relationship:#d98b8b; --society:#7fb8a8; --legacy:#d4af6a;
+    --atmosphere:#1c1730;
+    --radius:14px;
+  }
+  *{box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{
+    margin:0; background:var(--bg); color:var(--text);
+    font-family:'Inter', sans-serif; -webkit-font-smoothing:antialiased; line-height:1.6; overflow-x:hidden;
+  }
+  ::selection{ background:var(--gold); color:#100c02; }
+  h1,h2,h3{ margin:0; font-family:'Fraunces', serif; font-weight:600; letter-spacing:-0.01em; }
+  .eyebrow{ font-family:'IBM Plex Mono', monospace; font-size:0.7rem; letter-spacing:0.16em; text-transform:uppercase; color:var(--gold); }
+  a{ color:var(--gold); } button{ font-family:inherit; cursor:pointer; }
+
+  /* fixed atmosphere backdrop that cross-fades color per chapter */
+  .atmosphere{
+    position:fixed; inset:0; z-index:0; pointer-events:none;
+    background:radial-gradient(900px 700px at 50% 20%, var(--atmosphere), transparent 70%);
+    transition:background 1.2s ease;
+    opacity:0.65;
+  }
+  .page{ position:relative; z-index:1; }
+
+  @keyframes fadeUp{ from{opacity:0; transform:translateY(20px);} to{opacity:1; transform:translateY(0);} }
+  @keyframes drift{ 0%,100%{transform:translateY(0);} 50%{transform:translateY(-10px);} }
+  @keyframes bob{ 0%,100%{transform:translateY(0); opacity:0.5;} 50%{transform:translateY(6px); opacity:1;} }
+  @keyframes stampDown{ 0%{transform:translate(-50%,-50%) scale(2.2); opacity:0;} 60%{transform:translate(-50%,-50%) scale(0.94); opacity:1;} 100%{transform:translate(-50%,-50%) scale(1); opacity:1;} }
+  @keyframes floaty{ 0%,100%{ transform:translate(0,0);} 33%{ transform:translate(6px,-10px);} 66%{ transform:translate(-6px,6px);} }
+  .reveal{ opacity:0; transform:translateY(24px); transition:opacity .8s cubic-bezier(.16,1,.3,1), transform .8s cubic-bezier(.16,1,.3,1); }
+  .reveal.in{ opacity:1; transform:translateY(0); }
+  .mask{ overflow:hidden; display:block; }
+  .mask > span{ display:inline-block; transform:translateY(115%); transition:transform .9s cubic-bezier(.16,1,.3,1); }
+  .mask.in > span{ transform:translateY(0); }
+  @media(prefers-reduced-motion:reduce){ .reveal{opacity:1; transform:none;} .mask>span{transform:none;} }
+
+  /* ---------- NAV ---------- */
+  .topbar{
+    display:flex; align-items:center; justify-content:space-between; padding:20px clamp(20px,5vw,64px);
+    position:sticky; top:0; z-index:60; background:rgba(8,9,12,0.7); backdrop-filter:blur(14px);
+    border-bottom:1px solid var(--glass-border);
+  }
+  .brand{ display:flex; align-items:center; gap:11px; }
+  .brand-mark{ width:30px;height:30px; border-radius:50%; background:radial-gradient(circle at 35% 30%, #fff3d6, var(--gold) 55%, var(--gold-dim) 100%); box-shadow:0 0 18px rgba(212,175,106,0.35);}
+  .brand-name{ font-size:1.02rem; font-weight:600; }
+  .brand-tag{ font-family:'IBM Plex Mono',monospace; font-size:0.6rem; color:var(--muted); letter-spacing:0.08em; }
+  .btn{
+    font-family:'IBM Plex Mono',monospace; font-size:0.73rem; letter-spacing:0.04em; text-transform:uppercase;
+    padding:11px 20px; border-radius:999px; border:1px solid var(--glass-border); background:var(--glass); color:var(--text);
+    transition:background .2s ease, border-color .2s ease; position:relative;
+  }
+  .btn:hover{ background:var(--glass-hover); border-color:var(--gold); }
+  .btn.solid{ background:var(--gold); color:#1a1305; border-color:var(--gold); }
+  .btn.solid:hover{ background:#e6c384; box-shadow:0 8px 24px -8px rgba(212,175,106,0.5); }
+  .btn.magnetic{ will-change:transform; }
+
+  /* ---------- CHAPTER LABEL ---------- */
+  .chapter-tag{
+    display:inline-flex; align-items:center; gap:8px; font-family:'IBM Plex Mono',monospace; font-size:0.66rem;
+    letter-spacing:0.18em; text-transform:uppercase; color:var(--muted); margin-bottom:18px;
+  }
+  .chapter-tag::before{ content:''; width:20px; height:1px; background:var(--gold-dim); }
+
+  /* ---------- HERO ---------- */
+  .hero{ position:relative; min-height:92vh; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; padding:60px 20px; overflow:hidden; }
+  .hero-glow{ position:absolute; inset:0; pointer-events:none; background:radial-gradient(600px 500px at var(--mx,50%) var(--my,35%), rgba(212,175,106,0.16), transparent 65%); transition:background .1s linear; }
+  canvas#dust{ position:absolute; inset:0; pointer-events:none; opacity:0.55; }
+  .hero-content{ position:relative; z-index:2; max-width:760px; }
+  .hero .eyebrow{ display:block; margin-bottom:22px; opacity:0.85; }
+  .hero h1{ font-size:clamp(2.1rem, 5.2vw, 3.6rem); line-height:1.14; font-weight:500; }
+  .hero h1 .accent{ color:var(--gold); font-style:italic; font-weight:450; }
+  .hero p.lede{ margin-top:26px; font-size:1.08rem; color:var(--muted); max-width:52ch; margin-left:auto; margin-right:auto; font-family:'Fraunces',serif; font-weight:350; opacity:0; animation:fadeUp 1s cubic-bezier(.16,1,.3,1) 0.4s forwards; }
+  .hero-cta{ margin-top:36px; display:flex; gap:14px; justify-content:center; flex-wrap:wrap; opacity:0; animation:fadeUp 1s cubic-bezier(.16,1,.3,1) 0.6s forwards; }
+  .scroll-cue{ position:absolute; bottom:34px; left:50%; transform:translateX(-50%); z-index:2; }
+  .scroll-cue span{ display:block; width:1px; height:34px; background:linear-gradient(var(--gold), transparent); animation:bob 1.8s ease-in-out infinite; margin:0 auto; }
+
+  /* ---------- PROBLEM / EMPATHY SECTION ---------- */
+  .problem{ padding:120px clamp(20px,5vw,64px); max-width:1180px; margin:0 auto; }
+  .problem-head{ max-width:640px; }
+  .problem-head p{ color:var(--muted); font-family:'Fraunces',serif; font-size:1.05rem; margin-top:14px; }
+  .metaphor-row{ display:grid; grid-template-columns:repeat(5,1fr); gap:18px; margin-top:56px; }
+  @media(max-width:900px){ .metaphor-row{ grid-template-columns:repeat(2,1fr); } }
+  .metaphor-card{
+    position:relative; border-radius:16px; padding:26px 18px; min-height:170px;
+    background:linear-gradient(160deg, rgba(255,255,255,0.05), rgba(255,255,255,0.015));
+    border:1px solid var(--glass-border); filter:grayscale(1) brightness(0.7); transition:filter 1s ease;
+  }
+  .metaphor-card.lit{ filter:grayscale(0) brightness(1); }
+  .metaphor-card .num{ font-family:'IBM Plex Mono',monospace; font-size:0.66rem; color:var(--gold); }
+  .metaphor-card p{ font-family:'Fraunces',serif; font-size:0.98rem; margin-top:14px; color:var(--text); }
+
+  /* ---------- LOCKER / DRAWERS ---------- */
+  .locker{ max-width:1100px; margin:0 auto; padding:120px clamp(20px,5vw,64px); }
+  .locker-head{ display:flex; justify-content:space-between; align-items:flex-end; gap:24px; flex-wrap:wrap; max-width:640px; }
+  .locker-head p{ color:var(--muted); margin-top:12px; font-size:0.98rem; }
+  .view-toggle{ display:flex; gap:6px; background:var(--glass); border:1px solid var(--glass-border); border-radius:999px; padding:4px; margin-top:20px; }
+  .view-toggle button{ font-family:'IBM Plex Mono',monospace; font-size:0.68rem; text-transform:uppercase; letter-spacing:0.04em; padding:9px 16px; border-radius:999px; border:none; background:transparent; color:var(--muted); transition:all .2s ease; }
+  .view-toggle button.active{ background:var(--gold); color:#1a1305; }
+
+  .cabinet{ margin-top:36px; border-radius:20px; overflow:hidden; border:1px solid rgba(212,175,106,0.18);
+    background:linear-gradient(180deg, rgba(90,60,30,0.12), rgba(20,14,8,0.2));
+    box-shadow:0 30px 60px -30px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.04); }
+  .drawer{ border-bottom:1px solid rgba(212,175,106,0.12); }
+  .drawer:last-child{ border-bottom:none; }
+  .drawer-face{ display:flex; align-items:center; gap:16px; width:100%; text-align:left; padding:24px 26px; background:transparent; border:none; color:var(--text); transition:background .25s ease; }
+  .drawer-face:hover{ background:rgba(255,255,255,0.035); }
+  .drawer-face .handle{
+    width:36px; height:36px; border-radius:50%; flex:none; display:flex; align-items:center; justify-content:center;
+    font-family:'Fraunces',serif; font-weight:600; font-size:0.95rem; color:#0c0c0e;
+    background:radial-gradient(circle at 35% 30%, #fff, var(--c,var(--gold)) 60%);
+    box-shadow:inset 0 -3px 6px rgba(0,0,0,0.3), 0 3px 10px rgba(0,0,0,0.4);
+    transition:transform .4s cubic-bezier(.34,1.5,.5,1);
+  }
+  .drawer.open .drawer-face .handle{ transform:rotate(90deg) scale(1.08); }
+  .drawer-face .label .title{ font-family:'Fraunces',serif; font-size:1.16rem; font-weight:600; }
+  .drawer-face .label .kicker{ font-family:'IBM Plex Mono',monospace; font-size:0.66rem; color:var(--muted); text-transform:uppercase; letter-spacing:0.06em; margin-top:3px; }
+  .drawer-face .chev{ margin-left:auto; color:var(--muted); transition:transform .4s cubic-bezier(.16,1,.3,1); }
+  .drawer.open .drawer-face .chev{ transform:rotate(180deg); color:var(--gold); }
+  .drawer-body{ max-height:0; overflow:hidden; transition:max-height .6s cubic-bezier(.16,1,.3,1); }
+  .drawer.open .drawer-body{ max-height:2600px; }
+  .drawer-inner{ padding:0 26px 30px; }
+
+  .quip{ font-family:'Fraunces',serif; font-style:italic; color:var(--muted); font-size:0.94rem; margin:8px 0 18px; }
+  .visibility-pill{ display:inline-flex; align-items:center; gap:6px; font-family:'IBM Plex Mono',monospace; font-size:0.68rem; color:var(--muted); border:1px solid var(--glass-border); border-radius:999px; padding:6px 12px; margin-bottom:20px; }
+  .new-entry-toggle{ margin-bottom:20px; }
+  form.entry-form{ display:none; background:rgba(255,255,255,0.03); border:1px solid var(--glass-border); border-radius:var(--radius); padding:22px; margin-bottom:26px; }
+  form.entry-form.open{ display:block; animation:fadeUp .4s cubic-bezier(.16,1,.3,1) both; }
+  form.entry-form label{ display:block; font-family:'IBM Plex Mono',monospace; font-size:0.68rem; color:var(--gold); text-transform:uppercase; letter-spacing:0.05em; margin:16px 0 7px; }
+  form.entry-form label:first-of-type{ margin-top:0; }
+  form.entry-form .hint{ font-family:'Fraunces',serif; font-style:italic; color:var(--muted); font-size:0.84rem; margin-bottom:6px; display:block; }
+  input[type=text], input[type=date], textarea, select{ width:100%; background:rgba(0,0,0,0.28); border:1px solid var(--glass-border); color:var(--text); padding:11px 13px; font-family:'Inter',sans-serif; font-size:0.94rem; border-radius:10px; }
+  input:focus, textarea:focus, select:focus{ outline:none; border-color:var(--gold); }
+  textarea{ resize:vertical; min-height:66px; }
+  select{ font-family:'IBM Plex Mono',monospace; font-size:0.8rem; cursor:pointer; }
+  .form-row3{ display:grid; grid-template-columns:1fr 1fr 1fr; gap:16px; }
+  @media(max-width:640px){ .form-row3{ grid-template-columns:1fr; } }
+  .form-actions{ margin-top:22px; display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+  .form-status{ font-family:'IBM Plex Mono',monospace; font-size:0.72rem; color:#8fd6b0; }
+  .entries{ display:flex; flex-direction:column; gap:14px; }
+  .entry-card{ border:1px solid var(--glass-border); border-radius:var(--radius); background:rgba(255,255,255,0.025); padding:18px 20px; transition:transform .25s cubic-bezier(.16,1,.3,1), background .25s ease; }
+  .entry-card:hover{ transform:translateY(-2px); background:rgba(255,255,255,0.045); }
+  .entry-card .meta{ display:flex; justify-content:space-between; flex-wrap:wrap; gap:8px; align-items:baseline; margin-bottom:8px; }
+  .entry-card .title{ font-family:'Fraunces',serif; font-size:1.08rem; font-weight:600; }
+  .entry-card .stamp-meta{ font-family:'IBM Plex Mono',monospace; font-size:0.65rem; color:var(--muted); }
+  .tag-row{ display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px; }
+  .tag-chip{ font-family:'IBM Plex Mono',monospace; font-size:0.62rem; text-transform:uppercase; letter-spacing:0.04em; padding:3px 9px; border-radius:999px; border:1px solid var(--glass-border); color:var(--muted); }
+  .entry-card .qa .q{ font-family:'IBM Plex Mono',monospace; font-size:0.66rem; color:var(--gold); text-transform:uppercase; letter-spacing:0.04em; margin-top:12px; }
+  .entry-card .qa .q:first-child{ margin-top:0; }
+  .entry-card .qa .a{ color:var(--text); font-size:0.94rem; margin-top:4px; white-space:pre-wrap; }
+  .entry-card .contradiction{ margin-top:12px; padding-top:12px; border-top:1px dashed var(--glass-border); font-style:italic; color:var(--muted); font-size:0.88rem; font-family:'Fraunces',serif; }
+  .entry-card .anchor{ margin-top:12px; font-size:0.86rem; color:var(--muted); background:rgba(212,175,106,0.06); padding:8px 12px; border-radius:8px; }
+  .entry-card .anchor b{ color:var(--gold); font-weight:600; }
+  .badge{ font-family:'IBM Plex Mono',monospace; font-size:0.6rem; text-transform:uppercase; letter-spacing:0.04em; padding:3px 9px; border:1px solid; border-radius:999px; }
+  .badge.sealed{ border-color:#c97b6b; color:#c97b6b; }
+  .sealed-box{ text-align:center; padding:26px 18px; color:var(--muted); font-family:'IBM Plex Mono',monospace; font-size:0.82rem; border:1px dashed #6f4a40; border-radius:10px; }
+  .empty-state{ padding:24px 4px; color:var(--muted); font-size:0.92rem; font-style:italic; font-family:'Fraunces',serif; }
+  .del-btn{ background:none; border:none; color:var(--muted2); font-family:'IBM Plex Mono',monospace; font-size:0.66rem; text-decoration:underline; padding:0; margin-top:12px; }
+  .del-btn:hover{ color:#c97b6b; }
+  .stamp-fx{ position:fixed; top:50%; left:50%; z-index:200; pointer-events:none; font-family:'IBM Plex Mono',monospace; font-size:1.1rem; letter-spacing:0.1em; color:var(--gold); border:1px solid var(--gold); padding:12px 26px; border-radius:999px; text-transform:uppercase; background:rgba(10,10,14,0.85); backdrop-filter:blur(10px); animation:stampDown .5s cubic-bezier(.2,.9,.3,1.2) forwards; }
+
+  /* ---------- LIFE IN NUMBERS ---------- */
+  .numbers{ padding:100px clamp(20px,5vw,64px); max-width:1100px; margin:0 auto; text-align:center; }
+  .numbers-grid{ display:grid; grid-template-columns:repeat(4,1fr); gap:24px; margin-top:50px; }
+  @media(max-width:800px){ .numbers-grid{ grid-template-columns:repeat(2,1fr); } }
+  .numbers-item .count{ font-family:'Fraunces',serif; font-size:clamp(2.2rem,5vw,3.2rem); font-weight:600; color:var(--gold); }
+  .numbers-item .cap{ font-family:'IBM Plex Mono',monospace; font-size:0.68rem; text-transform:uppercase; letter-spacing:0.06em; color:var(--muted); margin-top:8px; }
+
+  /* ---------- CORRIDOR / TIMELINE ---------- */
+  .corridor{ max-width:900px; margin:0 auto; padding:100px clamp(20px,5vw,64px) 60px; }
+  .timeline{ margin-top:44px; position:relative; padding-left:30px; }
+  .tl-line{ position:absolute; left:5px; top:0; width:1px; height:100%; background:rgba(212,175,106,0.15); }
+  .tl-line-fill{ position:absolute; left:5px; top:0; width:1px; height:0; background:linear-gradient(var(--gold), transparent); box-shadow:0 0 8px rgba(212,175,106,0.6); }
+  .tl-node{ position:relative; margin-bottom:30px; opacity:0; transform:translateX(-10px); transition:opacity .6s ease, transform .6s ease; }
+  .tl-node.in{ opacity:1; transform:translateX(0); }
+  .tl-node::before{ content:''; position:absolute; left:-30px; top:6px; width:11px; height:11px; border-radius:50%; background:var(--dot,var(--gold)); box-shadow:0 0 0 5px rgba(212,175,106,0.08); }
+  .tl-stage{ font-family:'IBM Plex Mono',monospace; font-size:0.64rem; color:var(--muted); text-transform:uppercase; letter-spacing:0.08em; margin-bottom:6px; }
+  .tl-card{ border:1px solid var(--glass-border); border-radius:12px; padding:14px 16px; background:rgba(255,255,255,0.025); }
+  .tl-card .title{ font-family:'Fraunces',serif; font-weight:600; font-size:1rem; }
+  .tl-card .sub{ font-family:'IBM Plex Mono',monospace; font-size:0.64rem; color:var(--muted); margin-top:4px; }
+
+  /* ---------- CONSTELLATION ---------- */
+  .constellation-sec{ max-width:1180px; margin:0 auto; padding:60px clamp(20px,5vw,64px) 120px; }
+  .constellation-head{ max-width:620px; }
+  .constellation-head p{ color:var(--muted); font-family:'Fraunces',serif; font-size:1rem; margin-top:12px; }
+  .const-wrap{ position:relative; margin-top:40px; border:1px solid var(--glass-border); border-radius:20px; overflow:hidden; background:radial-gradient(circle at 50% 40%, #0d1224, #05060a); }
+  canvas#constellation{ display:block; width:100%; height:440px; }
+  .const-empty{ position:absolute; inset:0; display:flex; align-items:center; justify-content:center; text-align:center; color:var(--muted); font-family:'Fraunces',serif; font-style:italic; padding:20px; }
+
+  /* ---------- PHILOSOPHY ---------- */
+  .philosophy{ position:relative; border-top:1px solid var(--glass-border); padding:130px clamp(20px,5vw,64px); text-align:center; overflow:hidden; }
+  canvas#embers{ position:absolute; inset:0; pointer-events:none; opacity:0.5; }
+  .philosophy blockquote{ position:relative; z-index:1; font-family:'Fraunces',serif; font-style:italic; font-weight:450; font-size:clamp(1.3rem,2.6vw,1.9rem); max-width:780px; margin:0 auto; line-height:1.5; }
+  .philosophy .attrib{ position:relative; z-index:1; margin-top:18px; font-family:'IBM Plex Mono',monospace; font-size:0.7rem; color:var(--gold); letter-spacing:0.08em; text-transform:uppercase; }
+
+  /* ---------- ROADMAP ---------- */
+  .roadmap{ max-width:900px; margin:0 auto; padding:0 clamp(20px,5vw,64px) 90px; }
+  .roadmap-box{ border:1px solid var(--glass-border); border-radius:var(--radius); padding:30px clamp(20px,4vw,36px); background:rgba(255,255,255,0.02); }
+  .roadmap-box h3{ font-size:1.15rem; font-weight:500; margin-bottom:10px; }
+  .roadmap-box p{ color:var(--muted); font-size:0.92rem; max-width:70ch; }
+  .roadmap-grid{ display:grid; grid-template-columns:repeat(2,1fr); gap:14px; margin-top:18px; }
+  @media(max-width:640px){ .roadmap-grid{ grid-template-columns:1fr; } }
+  .roadmap-item{ font-family:'IBM Plex Mono',monospace; font-size:0.7rem; color:var(--muted); border-left:2px solid var(--gold-dim); padding-left:12px; }
+  .roadmap-item b{ display:block; color:var(--text); font-family:'Inter',sans-serif; font-size:0.84rem; margin-bottom:3px; }
+
+  footer{ position:relative; z-index:1; padding:26px clamp(20px,5vw,64px); text-align:center; font-family:'IBM Plex Mono',monospace; font-size:0.68rem; color:var(--muted2); border-top:1px solid var(--glass-border); }
+</style>
+</head>
+<body>
+<div class="atmosphere" id="atmosphere"></div>
+<div class="page">
+
+<div class="topbar">
+  <div class="brand">
+    <div class="brand-mark"></div>
+    <div><div class="brand-name">Life Story Locker</div><div class="brand-tag">A HUMAN UNDERSTANDING INFRASTRUCTURE</div></div>
+  </div>
+  <button class="btn solid magnetic" onclick="document.getElementById('locker').scrollIntoView({behavior:'smooth'})">Open the locker</button>
+</div>
+
+<!-- CHAPTER 1: HERO -->
+<section class="hero" id="heroSec" data-atmos="#241a3d">
+  <canvas id="dust"></canvas>
+  <div class="hero-glow" id="heroGlow"></div>
+  <div class="hero-content">
+    <span class="eyebrow">Chapter one — before the features, a question</span>
+    <h1><span class="mask" id="h1a"><span>One day, someone will wonder</span></span><span class="mask" id="h1b"><span>who you <em class="accent" style="font-style:italic;color:var(--gold)">really</em> were.</span></span></h1>
+    <p class="lede">Not the version that made it to the feed. The version that made the decisions, carried the doubts, and loved imperfectly. This is where that version gets kept — for the people who'll go looking.</p>
+    <div class="hero-cta">
+      <button class="btn solid magnetic" onclick="document.getElementById('locker').scrollIntoView({behavior:'smooth'})">Begin your archive</button>
+      <button class="btn magnetic" onclick="document.getElementById('philosophy').scrollIntoView({behavior:'smooth'})">Why this exists</button>
+    </div>
+  </div>
+  <div class="scroll-cue"><span></span></div>
+</section>
+
+<!-- CHAPTER 2: PROBLEM / EMPATHY -->
+<section class="problem" id="problemSec" data-atmos="#1a2233">
+  <div class="problem-head">
+    <div class="chapter-tag">Chapter two — the diagnosis</div>
+    <h2 class="mask" style="font-size:clamp(1.6rem,3vw,2.3rem);"><span>Five ways honesty quietly disappears</span></h2>
+    <p>Not accusations — just what happens, gradually, to almost everyone. Watch each one come into focus as you scroll.</p>
+  </div>
+  <div class="metaphor-row" id="metaphorRow">
+    <div class="metaphor-card"><div class="num">01</div><p>We show highlight reels and call it honesty</p></div>
+    <div class="metaphor-card"><div class="num">02</div><p>Failure gets deleted before anyone learns from it</p></div>
+    <div class="metaphor-card"><div class="num">03</div><p>Parents become strangers with the same last name</p></div>
+    <div class="metaphor-card"><div class="num">04</div><p>Relationships run on vibes, not information</p></div>
+    <div class="metaphor-card"><div class="num">05</div><p>Everyone's performing a life nobody's living</p></div>
+  </div>
+</section>
+
+<!-- CHAPTER 3: DRAWERS -->
+<section class="locker" id="locker" data-atmos="#2e2210">
+  <div class="chapter-tag">Chapter three — the archive</div>
+  <div class="locker-head">
+    <div>
+      <h2 class="mask"><span>Five drawers. One archive.</span></h2>
+      <p>Each drawer is for a different reader, unlocked on your terms.</p>
+      <div class="view-toggle">
+        <button class="active" id="viewDrawers">Drawers</button>
+        <button id="viewTimelineBtn">Jump to corridor ↓</button>
+      </div>
+    </div>
+  </div>
+  <div class="cabinet" id="cabinet"></div>
+</section>
+
+<!-- CHAPTER 4: LIFE IN NUMBERS -->
+<section class="numbers" id="numbersSec" data-atmos="#332008">
+  <div class="chapter-tag" style="justify-content:center;">Chapter four — the archive, in numbers</div>
+  <h2 class="mask" style="font-size:clamp(1.5rem,3vw,2rem);"><span>A life, quantified — briefly</span></h2>
+  <div class="numbers-grid" id="numbersGrid">
+    <div class="numbers-item"><div class="count" data-target="0" id="statMemories">0</div><div class="cap">Memories filed</div></div>
+    <div class="numbers-item"><div class="count" data-target="5">0</div><div class="cap">Drawers</div></div>
+    <div class="numbers-item"><div class="count" data-target="0" id="statStages">0</div><div class="cap">Life stages touched</div></div>
+    <div class="numbers-item"><div class="count" data-target="0">0</div><div class="cap">Things sold to advertisers</div></div>
+  </div>
+</section>
+
+<!-- CHAPTER 5: CORRIDOR / TIMELINE -->
+<section class="corridor" id="corridorSec" data-atmos="#131b33">
+  <div class="chapter-tag">Chapter five — the corridor</div>
+  <h2 class="mask" style="font-size:clamp(1.6rem,3vw,2.2rem);"><span>Walk through it, in order</span></h2>
+  <p style="color:var(--muted); margin-top:12px; max-width:56ch;">Every memory from every drawer, laid end to end — from childhood to legacy.</p>
+  <div class="timeline">
+    <div class="tl-line"></div>
+    <div class="tl-line-fill" id="tlFill"></div>
+    <div id="timelineList"></div>
+  </div>
+</section>
+
+<!-- CHAPTER 6: CONSTELLATION -->
+<section class="constellation-sec" id="constellationSec" data-atmos="#05060f">
+  <div class="chapter-tag">Chapter six — the constellation</div>
+  <div class="constellation-head">
+    <h2 class="mask" style="font-size:clamp(1.6rem,3vw,2.2rem);"><span>Every memory is a point of light</span></h2>
+    <p>Memories that share a feeling drift closer together. This map redraws itself as you add more.</p>
+  </div>
+  <div class="const-wrap">
+    <canvas id="constellation"></canvas>
+    <div class="const-empty" id="constEmpty">Your constellation is empty. File a memory in any drawer and it will appear here as a star.</div>
+  </div>
+</section>
+
+<!-- CHAPTER 7: PHILOSOPHY -->
+<section class="philosophy" id="philosophy" data-atmos="#2a1a12">
+  <canvas id="embers"></canvas>
+  <blockquote class="reveal">"If we knew each other's full story, we'd probably judge a lot less — and understand a lot more."</blockquote>
+  <div class="attrib reveal">— Founder philosophy</div>
+</section>
+
+<section class="roadmap">
+  <div class="roadmap-box reveal">
+    <span class="eyebrow">Honest scope note</span>
+    <h3 style="margin-top:12px;">What this prototype is — and isn't, yet</h3>
+    <p>This runs entirely in your browser: entries save locally, nothing touches a server. It's built so you can feel the experience before we commit to real infrastructure.</p>
+    <div class="roadmap-grid">
+      <div class="roadmap-item"><b>Accounts, sync, sharing</b>Needs a real backend and auth.</div>
+      <div class="roadmap-item"><b>AI Memory Historian</b>Needs a live model connection.</div>
+      <div class="roadmap-item"><b>Encryption</b>A security architecture decision, not a UI toggle.</div>
+      <div class="roadmap-item"><b>Photos, video, voice</b>Needs real file storage.</div>
+    </div>
+  </div>
+</section>
+
+<footer>Life Story Locker — cinematic design prototype. Entries live in this browser; Society entries are shared with everyone using this page.</footer>
+</div>
+
+<script>
+gsap.registerPlugin(ScrollTrigger);
+
+const LIFE_STAGES = ['Childhood','School','College','Career','Marriage','Parenthood','Achievement','Failure','Travel','Illness','Retirement','Legacy'];
+const EMOTIONS = ['Joy','Grief','Pride','Regret','Fear','Love','Anger','Peace'];
+
+const SECTIONS = {
+  personal:{ key:'personal', label:'Personal', accent:'var(--personal)', hex:'#b79bd0', shared:false, kicker:'THE ONE NOBODY READS',
+    purpose:"The unfiltered draft. Regrets, spirals, 2am realizations — too honest for even your closest circle.",
+    quip:"Not therapy. Just honest, and free.", note:"Visible to exactly one person: you.",
+    prompts:[{key:'what',q:'What actually happened?',hint:'No spin — that\u2019s for later.'},{key:'feel',q:'What are you feeling right now, honestly?',hint:''},{key:'wrong',q:'Write the version where you were wrong',hint:'The part you keep leaving out.'}]},
+  family:{ key:'family', label:'Family', accent:'var(--family)', hex:'#e0a06b', shared:false, kicker:'THE APOLOGY YOU HAVEN\u2019T GIVEN',
+    purpose:"Where parents get to be people — not just authority figures who occasionally embarrassed you.",
+    quip:"Understanding, not just history.", note:"For your kids. Ideally read before the eulogy.",
+    prompts:[{key:'age',q:'What was I actually going through at your age?',hint:''},{key:'decision',q:'The decision that shaped our family — and why I made it',hint:''},{key:'understand',q:'What I need you to understand about me',hint:''}]},
+  relationship:{ key:'relationship', label:'Relationship', accent:'var(--relationship)', hex:'#d98b8b', shared:false, kicker:'THE TERMS AND CONDITIONS',
+    purpose:"Unlocks after trust, not after three dates. Your patterns and boundaries — labeled, not weaponized.",
+    quip:"Compatibility needs information, not vibes.", note:"Shared only with someone who's earned it. Revoke anytime.",
+    prompts:[{key:'pattern',q:'The pattern I keep repeating, no matter who I date',hint:''},{key:'safe',q:'What I actually need to feel safe',hint:''},{key:'lesson',q:'What the last relationship taught me — blame-free',hint:''}]},
+  society:{ key:'society', label:'Society', accent:'var(--society)', hex:'#7fb8a8', shared:true, kicker:'FOR ANYONE STILL FIGURING IT OUT',
+    purpose:"Anonymous life lessons for strangers. No likes, no followers, no performance — just the plot.",
+    quip:"The rare comment section that isn't trying to ruin your day.", note:"⚠ Public. Everyone using this page can read it.",
+    prompts:[{key:'lesson',q:'The lesson that took embarrassingly long to learn',hint:''},{key:'advice',q:'What would you tell someone going through it right now?',hint:''}]},
+  legacy:{ key:'legacy', label:'Legacy', accent:'var(--legacy)', hex:'#d4af6a', shared:false, timeLocked:true, kicker:'THE ONE WITH A TIMER',
+    purpose:"Messages sealed until a future date — a birthday, an adulthood, a funeral.",
+    quip:"'I'll tell them someday' has a 100% failure rate historically.", note:"Sealed until the date you choose.",
+    prompts:[{key:'message',q:'When this unlocks, here\u2019s what I want you to know',hint:''},{key:'why',q:'Why this couldn\u2019t be said out loud, until now',hint:''}]}
+};
+const order = ['personal','family','relationship','society','legacy'];
+let openDrawer = 'personal';
+const cache = {};
+
+async function loadEntries(k){ if(cache[k]) return cache[k]; const s=SECTIONS[k];
+  try{ const res = await window.storage.get('stories:'+k, s.shared); cache[k] = res && res.value ? JSON.parse(res.value) : []; }
+  catch(e){ cache[k] = []; } return cache[k]; }
+async function saveEntries(k, arr){ const s=SECTIONS[k]; cache[k]=arr;
+  try{ await window.storage.set('stories:'+k, JSON.stringify(arr), s.shared); }catch(e){ console.error(e); } }
+function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,7); }
+function fmtDate(ts){ return new Date(ts).toLocaleDateString('en-US',{year:'numeric',month:'short',day:'numeric'}); }
+function escapeHtml(str){ const d=document.createElement('div'); d.textContent=str; return d.innerHTML; }
+
+/* ---------- DRAWERS ---------- */
+function buildCabinet(){
+  const cab = document.getElementById('cabinet');
+  cab.innerHTML = order.map(k=>{
+    const s = SECTIONS[k]; const isOpen = k===openDrawer;
+    return `<div class="drawer ${isOpen?'open':''}" data-key="${k}">
+      <button class="drawer-face">
+        <div class="handle" style="--c:${s.hex}">${s.label[0]}</div>
+        <div class="label"><div class="title">${s.label}</div><div class="kicker">${s.kicker}</div></div>
+        <div class="chev">⌄</div>
+      </button>
+      <div class="drawer-body"><div class="drawer-inner" id="inner-${k}"></div></div>
+    </div>`;
+  }).join('');
+  cab.querySelectorAll('.drawer-face').forEach(f=>{
+    f.addEventListener('click', ()=>{
+      const key = f.parentElement.dataset.key;
+      openDrawer = (openDrawer===key) ? null : key;
+      buildCabinet();
+      if(openDrawer) renderDrawerContent(openDrawer);
+      ScrollTrigger.refresh();
+    });
+  });
+  if(openDrawer) renderDrawerContent(openDrawer);
+}
+
+async function renderDrawerContent(key){
+  const s = SECTIONS[key]; const el = document.getElementById('inner-'+key); if(!el) return;
+  const entries = await loadEntries(key);
+  el.innerHTML = `
+    <p style="color:var(--muted); font-size:0.94rem; max-width:60ch;">${s.purpose}</p>
+    <p class="quip">${s.quip}</p>
+    <div class="visibility-pill">${s.note}</div>
+    <div class="new-entry-toggle"><button class="btn solid" id="toggleForm-${key}">+ Add a memory</button></div>
+    <form class="entry-form" id="entryForm-${key}">
+      <label>Title</label>
+      <input type="text" id="f-title-${key}" placeholder="Give this memory a name" required>
+      ${s.prompts.map(p=>`<label>${p.q}</label>${p.hint?`<span class="hint">${p.hint}</span>`:''}<textarea data-pk="${p.key}" class="prompt-input-${key}"></textarea>`).join('')}
+      <label>Contradiction check <span style="color:var(--muted); text-transform:none; font-weight:400;">(optional)</span></label>
+      <span class="hint">Is there a version of this story where you're the villain?</span>
+      <textarea id="f-contradiction-${key}"></textarea>
+      <label>Memory anchor <span style="color:var(--muted); text-transform:none; font-weight:400;">(optional)</span></label>
+      <span class="hint">Not proof — context. Describe the photo you'd attach and what it actually felt like.</span>
+      <textarea id="f-anchor-${key}"></textarea>
+      <div class="form-row3">
+        <div><label>Life stage</label><select id="f-stage-${key}">${LIFE_STAGES.map(ls=>`<option>${ls}</option>`).join('')}</select></div>
+        <div><label>Emotion</label><select id="f-emotion-${key}">${EMOTIONS.map(e=>`<option>${e}</option>`).join('')}</select></div>
+        <div><label>Who's allowed to read this</label><select id="f-visibility-${key}">
+          <option>Just me</option><option>My kids (once they're grown)</option><option>Partner (after trust unlocks)</option><option>Family</option>
+          ${s.shared ? '<option selected>Public (anonymous)</option>' : ''}
+        </select></div>
+      </div>
+      ${s.timeLocked ? `<div style="margin-top:16px;"><label>Unlock date</label><input type="date" id="f-unlock-${key}"></div>` : ''}
+      <div class="form-actions">
+        <button type="submit" class="btn solid">Save to this drawer</button>
+        <button type="button" class="btn" id="cancelForm-${key}">Never mind</button>
+        <span class="form-status" id="formStatus-${key}"></span>
+      </div>
+    </form>
+    <div class="entries" id="entriesList-${key}"></div>
+  `;
+  document.getElementById('toggleForm-'+key).addEventListener('click', ()=>{ document.getElementById('entryForm-'+key).classList.toggle('open'); ScrollTrigger.refresh(); });
+  document.getElementById('cancelForm-'+key).addEventListener('click', ()=> document.getElementById('entryForm-'+key).classList.remove('open'));
+  document.getElementById('entryForm-'+key).addEventListener('submit', (ev)=> onSubmitEntry(ev, key));
+  renderEntries(key, entries);
+}
+
+function renderEntries(key, entries){
+  const s = SECTIONS[key]; const list = document.getElementById('entriesList-'+key); if(!list) return;
+  if(!entries.length){ list.innerHTML = `<div class="empty-state">Nothing filed yet in this drawer. Write the first memory.</div>`; return; }
+  const sorted = [...entries].sort((a,b)=>b.createdAt-a.createdAt);
+  list.innerHTML = sorted.map(e=>{
+    const isLocked = s.timeLocked && e.unlockDate && new Date(e.unlockDate) > new Date();
+    if(isLocked){ return `<div class="entry-card locked"><div class="meta"><span class="title">${escapeHtml(e.title)}</span><span class="badge sealed">Sealed until ${e.unlockDate}</span></div><div class="sealed-box">This one stays shut until ${e.unlockDate}.</div><button class="del-btn" data-id="${e.id}">Delete entry</button></div>`; }
+    const qaHtml = Object.entries(e.answers||{}).filter(([,v])=>v && v.trim()).map(([pk,v])=>{ const pd=s.prompts.find(p=>p.key===pk); return `<div class="q">${pd?pd.q:pk}</div><div class="a">${escapeHtml(v)}</div>`; }).join('');
+    return `<div class="entry-card">
+      <div class="meta"><span class="title">${escapeHtml(e.title)}</span><span class="stamp-meta">${fmtDate(e.createdAt)}</span></div>
+      <div class="tag-row"><span class="tag-chip">${escapeHtml(e.lifeStage||'')}</span><span class="tag-chip">${escapeHtml(e.emotion||'')}</span><span class="tag-chip">${escapeHtml(e.visibility||'Just me')}</span></div>
+      <div class="qa">${qaHtml}</div>
+      ${e.contradiction ? `<div class="contradiction">"${escapeHtml(e.contradiction)}"</div>` : ''}
+      ${e.anchor ? `<div class="anchor"><b>Memory anchor —</b> ${escapeHtml(e.anchor)}</div>` : ''}
+      <button class="del-btn" data-id="${e.id}">Delete entry</button>
+    </div>`;
+  }).join('');
+  list.querySelectorAll('.del-btn').forEach(b=>{
+    b.addEventListener('click', async ()=>{ const entries = await loadEntries(key); const next = entries.filter(x=>x.id!==b.dataset.id); await saveEntries(key, next); renderEntries(key, next); refreshAll(); });
+  });
+}
+
+async function onSubmitEntry(ev, key){
+  ev.preventDefault(); const s = SECTIONS[key];
+  const title = document.getElementById('f-title-'+key).value.trim(); if(!title) return;
+  const answers = {}; document.querySelectorAll('.prompt-input-'+key).forEach(t=>{ answers[t.dataset.pk] = t.value.trim(); });
+  const contradiction = document.getElementById('f-contradiction-'+key).value.trim();
+  const anchor = document.getElementById('f-anchor-'+key).value.trim();
+  const lifeStage = document.getElementById('f-stage-'+key).value;
+  const emotion = document.getElementById('f-emotion-'+key).value;
+  const visibility = document.getElementById('f-visibility-'+key).value;
+  const unlockEl = document.getElementById('f-unlock-'+key); const unlockDate = unlockEl ? unlockEl.value : null;
+  const entry = { id:uid(), title, answers, contradiction, anchor, lifeStage, emotion, visibility, unlockDate, createdAt: Date.now() };
+  const status = document.getElementById('formStatus-'+key); status.textContent = 'Saving…';
+  const entries = await loadEntries(key); entries.push(entry); await saveEntries(key, entries);
+  status.textContent = 'Saved.'; showStamp();
+  document.getElementById('entryForm-'+key).reset(); document.getElementById('entryForm-'+key).classList.remove('open');
+  renderEntries(key, entries); refreshAll();
+  setTimeout(()=>{ if(status) status.textContent=''; }, 2200);
+}
+function showStamp(){ if(window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const el = document.createElement('div'); el.className='stamp-fx'; el.textContent='Saved to the locker';
+  document.body.appendChild(el); setTimeout(()=>el.remove(),900); }
+
+async function refreshAll(){ await renderNumbers(); await renderTimeline(); await renderConstellation(); ScrollTrigger.refresh(); }
+
+/* ---------- NUMBERS ---------- */
+function animateCount(el, target, dur=1.4){
+  gsap.fromTo(el, {innerText:0}, { innerText:target, duration:dur, ease:'power2.out', snap:{innerText:1}, onUpdate(){ el.textContent = Math.round(this.targets()[0].innerText); } });
+}
+async function renderNumbers(){
+  let total=0; const stages = new Set();
+  for(const k of order){ const entries = await loadEntries(k); total += entries.length; entries.forEach(e=> e.lifeStage && stages.add(e.lifeStage)); }
+  document.getElementById('statMemories').dataset.target = total;
+  document.getElementById('statStages').dataset.target = stages.size;
+}
+
+/* ---------- TIMELINE / CORRIDOR ---------- */
+async function renderTimeline(){
+  const el = document.getElementById('timelineList');
+  let all = [];
+  for(const k of order){ const s = SECTIONS[k]; const entries = await loadEntries(k);
+    entries.forEach(e=>{ const isLocked = s.timeLocked && e.unlockDate && new Date(e.unlockDate) > new Date();
+      all.push({...e, sectionLabel:s.label, hex:s.hex, locked:isLocked}); }); }
+  if(!all.length){ el.innerHTML = `<div class="empty-state">No memories filed yet across any drawer.</div>`; return; }
+  all.sort((a,b)=>{ const sa=LIFE_STAGES.indexOf(a.lifeStage), sb=LIFE_STAGES.indexOf(b.lifeStage); if(sa!==sb) return sa-sb; return a.createdAt-b.createdAt; });
+  el.innerHTML = all.map(e=>`
+    <div class="tl-node" style="--dot:${e.hex}">
+      <div class="tl-stage">${e.lifeStage || 'Unstaged'}</div>
+      <div class="tl-card"><div class="title">${e.locked?'🔒 ':''}${escapeHtml(e.title)}</div><div class="sub">${e.sectionLabel} · ${e.emotion||''} · ${fmtDate(e.createdAt)}</div></div>
+    </div>`).join('');
+}
+
+/* ---------- CONSTELLATION ---------- */
+let constNodes = [];
+async function renderConstellation(){
+  const canvas = document.getElementById('constellation');
+  const emptyEl = document.getElementById('constEmpty');
+  let all = [];
+  for(const k of order){ const s = SECTIONS[k]; const entries = await loadEntries(k);
+    entries.forEach(e=> all.push({...e, hex:s.hex})); }
+  constNodes = [];
+  if(!all.length){ emptyEl.style.display='flex'; return; }
+  emptyEl.style.display='none';
+  const w = canvas.clientWidth || 800, h = 440;
+  all.forEach((e,i)=>{
+    let seed=0; for(const ch of e.id) seed += ch.charCodeAt(0);
+    const angle = (seed % 360) * Math.PI/180;
+    const r = 60 + (seed % 160);
+    constNodes.push({ x: w/2 + Math.cos(angle)*r + (Math.random()*40-20), y: h/2 + Math.sin(angle)*r*0.7 + (Math.random()*40-20),
+      hex:e.hex, emotion:e.emotion, title:e.title, phase: Math.random()*Math.PI*2 });
+  });
+}
+function initConstellationCanvas(){
+  const canvas = document.getElementById('constellation'); const ctx = canvas.getContext('2d');
+  function resize(){ canvas.width = canvas.clientWidth * devicePixelRatio; canvas.height = 440 * devicePixelRatio; ctx.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0); }
+  resize(); window.addEventListener('resize', resize);
+  let t=0;
+  function draw(){
+    t += 0.01;
+    const w = canvas.clientWidth, h=440;
+    ctx.clearRect(0,0,w,h);
+    for(let i=0;i<constNodes.length;i++){
+      for(let j=i+1;j<constNodes.length;j++){
+        if(constNodes[i].emotion && constNodes[i].emotion === constNodes[j].emotion){
+          ctx.strokeStyle = 'rgba(212,175,106,0.12)'; ctx.lineWidth=1;
+          ctx.beginPath(); ctx.moveTo(constNodes[i].x, constNodes[i].y); ctx.lineTo(constNodes[j].x, constNodes[j].y); ctx.stroke();
+        }
+      }
+    }
+    constNodes.forEach(n=>{
+      const fx = n.x + Math.sin(t + n.phase)*4;
+      const fy = n.y + Math.cos(t*0.8 + n.phase)*4;
+      ctx.beginPath(); ctx.arc(fx, fy, 3, 0, Math.PI*2);
+      ctx.fillStyle = n.hex; ctx.shadowColor = n.hex; ctx.shadowBlur = 10; ctx.fill(); ctx.shadowBlur=0;
+    });
+    requestAnimationFrame(draw);
+  }
+  draw();
+}
+
+/* ---------- HERO DUST PARTICLES ---------- */
+function initDust(){
+  const canvas = document.getElementById('dust'); const ctx = canvas.getContext('2d');
+  function resize(){ canvas.width = canvas.clientWidth*devicePixelRatio; canvas.height = canvas.clientHeight*devicePixelRatio; ctx.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0); }
+  resize(); window.addEventListener('resize', resize);
+  const particles = Array.from({length:60}, ()=>({ x:Math.random()*canvas.clientWidth, y:Math.random()*canvas.clientHeight, r:Math.random()*1.4+0.3, s:Math.random()*0.3+0.05, o:Math.random()*0.5+0.2 }));
+  function draw(){
+    ctx.clearRect(0,0,canvas.clientWidth,canvas.clientHeight);
+    particles.forEach(p=>{ p.y -= p.s; if(p.y < -5) p.y = canvas.clientHeight+5;
+      ctx.beginPath(); ctx.arc(p.x,p.y,p.r,0,Math.PI*2); ctx.fillStyle=`rgba(212,175,106,${p.o})`; ctx.fill(); });
+    requestAnimationFrame(draw);
+  }
+  draw();
+}
+
+/* ---------- EMBERS (philosophy) ---------- */
+function initEmbers(){
+  const canvas = document.getElementById('embers'); const ctx = canvas.getContext('2d');
+  function resize(){ canvas.width = canvas.clientWidth*devicePixelRatio; canvas.height = canvas.clientHeight*devicePixelRatio; ctx.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0); }
+  resize(); window.addEventListener('resize', resize);
+  const embers = Array.from({length:26}, ()=>({ x:Math.random()*canvas.clientWidth, y:canvas.clientHeight+Math.random()*100, r:Math.random()*1.6+0.5, s:Math.random()*0.4+0.15, drift:Math.random()*0.6-0.3, o:Math.random()*0.5+0.2 }));
+  function draw(){
+    ctx.clearRect(0,0,canvas.clientWidth,canvas.clientHeight);
+    embers.forEach(p=>{ p.y -= p.s; p.x += p.drift*0.2; if(p.y < -10) p.y = canvas.clientHeight+10;
+      ctx.beginPath(); ctx.arc(p.x,p.y,p.r,0,Math.PI*2); ctx.fillStyle=`rgba(212,175,106,${p.o})`; ctx.fill(); });
+    requestAnimationFrame(draw);
+  }
+  draw();
+}
+
+/* ---------- ATMOSPHERE + REVEALS + SCROLLTRIGGERS ---------- */
+function initScrollStory(){
+  const atmos = document.getElementById('atmosphere');
+  document.querySelectorAll('[data-atmos]').forEach(sec=>{
+    ScrollTrigger.create({ trigger:sec, start:'top center', end:'bottom center',
+      onEnter:()=> atmos.style.setProperty('background', `radial-gradient(900px 700px at 50% 20%, ${sec.dataset.atmos}, transparent 70%)`),
+      onEnterBack:()=> atmos.style.setProperty('background', `radial-gradient(900px 700px at 50% 20%, ${sec.dataset.atmos}, transparent 70%)`)
+    });
+  });
+
+  // simple fade-up reveals
+  document.querySelectorAll('.reveal').forEach(el=>{
+    ScrollTrigger.create({ trigger:el, start:'top 85%', onEnter:()=>el.classList.add('in'), onEnterBack:()=>el.classList.add('in') });
+  });
+  // mask text reveals
+  document.querySelectorAll('.mask').forEach(el=>{
+    ScrollTrigger.create({ trigger:el, start:'top 88%', onEnter:()=>el.classList.add('in'), onEnterBack:()=>el.classList.add('in') });
+  });
+  // metaphor cards light up staggered
+  ScrollTrigger.create({ trigger:'#metaphorRow', start:'top 80%', onEnter:()=>{
+    document.querySelectorAll('.metaphor-card').forEach((c,i)=> setTimeout(()=>c.classList.add('lit'), i*180));
+  }});
+  // numbers count up
+  ScrollTrigger.create({ trigger:'#numbersGrid', start:'top 80%', once:true, onEnter:()=>{
+    document.querySelectorAll('.numbers-item .count').forEach(el=> animateCount(el, +el.dataset.target || +el.textContent));
+  }});
+  // timeline nodes + line fill
+  ScrollTrigger.create({ trigger:'#corridorSec', start:'top 70%', end:'bottom bottom', scrub:0.6,
+    onUpdate:(self)=>{ document.getElementById('tlFill').style.height = (self.progress*100)+'%'; } });
+  ScrollTrigger.create({ trigger:'#timelineList', start:'top 85%', onEnter:()=>{
+    document.querySelectorAll('.tl-node').forEach((n,i)=> setTimeout(()=>n.classList.add('in'), i*90));
+  }});
+}
+
+/* ---------- MAGNETIC BUTTONS ---------- */
+function initMagnetic(){
+  document.querySelectorAll('.magnetic').forEach(btn=>{
+    btn.addEventListener('mousemove', (e)=>{
+      const r = btn.getBoundingClientRect();
+      const x = e.clientX - r.left - r.width/2, y = e.clientY - r.top - r.height/2;
+      gsap.to(btn, { x:x*0.25, y:y*0.4, duration:0.3, ease:'power2.out' });
+    });
+    btn.addEventListener('mouseleave', ()=> gsap.to(btn, { x:0, y:0, duration:0.4, ease:'elastic.out(1,0.4)' }));
+  });
+}
+
+/* ---------- HERO GLOW ---------- */
+const heroSec = document.getElementById('heroSec'); const heroGlow = document.getElementById('heroGlow');
+heroSec.addEventListener('mousemove', (ev)=>{ const r = heroSec.getBoundingClientRect();
+  heroGlow.style.setProperty('--mx', ((ev.clientX-r.left)/r.width*100)+'%');
+  heroGlow.style.setProperty('--my', ((ev.clientY-r.top)/r.height*100)+'%'); });
+
+document.getElementById('viewDrawers').addEventListener('click', ()=> document.getElementById('locker').scrollIntoView({behavior:'smooth'}));
+document.getElementById('viewTimelineBtn').addEventListener('click', ()=> document.getElementById('corridorSec').scrollIntoView({behavior:'smooth'}));
+
+/* ---------- INIT ---------- */
+buildCabinet();
+initDust();
+initEmbers();
+initConstellationCanvas();
+initMagnetic();
+refreshAll().then(()=>{ initScrollStory(); ScrollTrigger.refresh(); });
+</script>
+</body>
+</html>
