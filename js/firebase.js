@@ -30,6 +30,9 @@ import {
   deleteDoc,
   query,
   where,
+  orderBy,
+  limit,
+  startAfter,
   getDocs,
   serverTimestamp,
 } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore.js";
@@ -202,4 +205,40 @@ export async function updateMemory(uid, memoryId, data) {
 export async function deleteMemory(uid, memoryId) {
   const ref = doc(db, "users", uid, "memories", memoryId);
   await deleteDoc(ref);
+}
+
+// ---------------------------------------------------------------------------
+// PAGINATED READS (new — additive, does not replace getUserMemoriesBySection)
+// ---------------------------------------------------------------------------
+// Requires a composite index: collection "memories", fields
+// section (Ascending) + createdAt (Descending), query scope: Collection.
+// See README for exact console steps. If the index doesn't exist yet (or is
+// still building), this throws — callers should catch it and fall back to
+// getUserMemoriesBySection() so nothing breaks while the index builds.
+
+/**
+ * Fetch one page of a user's memories in one section, newest first.
+ * @param {string} uid
+ * @param {string} section
+ * @param {number} pageSize
+ * @param {object|null} cursorDoc - the raw QueryDocumentSnapshot returned as
+ *   `lastDoc` from the previous page, or null for the first page.
+ * @returns {{ items: object[], lastDoc: object|null, hasMore: boolean }}
+ */
+export async function getUserMemoriesPage(uid, section, pageSize, cursorDoc = null) {
+  const base = [
+    collection(db, "users", uid, "memories"),
+    where("section", "==", section),
+    orderBy("createdAt", "desc"),
+  ];
+  const constraints = cursorDoc
+    ? [...base, startAfter(cursorDoc), limit(pageSize)]
+    : [...base, limit(pageSize)];
+  const q = query(...constraints);
+  const snap = await getDocs(q);
+  return {
+    items: snap.docs.map((d) => ({ id: d.id, ...d.data() })),
+    lastDoc: snap.docs.length ? snap.docs[snap.docs.length - 1] : null,
+    hasMore: snap.docs.length === pageSize,
+  };
 }

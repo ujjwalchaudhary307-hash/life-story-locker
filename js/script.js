@@ -1,6 +1,8 @@
 // js/script.js
-// App logic — drawers, timeline, constellation, auth UI, theme.
-// All Firebase calls go through js/firebase.js.
+// App logic — drawers (paginated), timeline v2, constellation, auth UI, theme,
+// search/filter/sort with suggestions+history, favorites, dashboard, analytics.
+// All Firebase calls go through js/firebase.js (unchanged config/architecture).
+// Auth logic unchanged.
 
 import {
   auth,
@@ -16,6 +18,7 @@ import {
   updateMemory,
   deleteMemory,
   getUserMemoriesBySection,
+  getUserMemoriesPage,
   getPublicMemories,
   getAllUserMemories,
   getSettings,
@@ -26,6 +29,8 @@ gsap.registerPlugin(ScrollTrigger);
 
 const LIFE_STAGES = ['Childhood','School','College','Career','Marriage','Parenthood','Achievement','Failure','Travel','Illness','Retirement','Legacy'];
 const EMOTIONS = ['Joy','Grief','Pride','Regret','Fear','Love','Anger','Peace'];
+const DAY_NAMES = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+const PAGE_SIZE = 8;
 
 const SECTIONS = {
   personal:{ key:'personal', label:'Personal', accent:'var(--personal)', hex:'#b79bd0', shared:false, kicker:'THE ONE NOBODY READS',
@@ -54,12 +59,35 @@ let openDrawer = 'personal';
 let currentUser = null;
 let editingId = {};
 
+// Per-drawer pagination state: { [section]: { lastDoc, hasMore, loaded:[], usingFallback:bool } }
+let drawerPageState = {};
+
+// Single cache of everything the user can see (own memories + public Society).
+// Powers Dashboard, Timeline, Constellation, Search, and Analytics.
+let allEntriesCache = [];
+
+let searchState = { query:'', section:'all', emotion:'all', stage:'all', favoritesOnly:false, archivedOnly:false, sort:'newest' };
+let timelineSectionFilter = 'all';
+let timelineRenderedYears = 0; // for lazy/incremental rendering
+let timelineYearGroups = [];   // computed once per refresh, consumed incrementally
+
 function escapeHtml(str){ const d=document.createElement('div'); d.textContent=str; return d.innerHTML; }
 function fmtDate(ts){
   const d = ts?.seconds ? new Date(ts.seconds*1000) : (ts instanceof Date ? ts : new Date(ts || Date.now()));
   return d.toLocaleDateString('en-US',{year:'numeric',month:'short',day:'numeric'});
 }
 function tsValue(ts){ return ts?.seconds ? ts.seconds*1000 : (ts || 0); }
+function tsDate(ts){ return ts?.seconds ? new Date(ts.seconds*1000) : new Date(ts || Date.now()); }
+function debounce(fn, wait){ let t; return (...args)=>{ clearTimeout(t); t=setTimeout(()=>fn(...args), wait); }; }
+function isVisibleForAnalytics(e){
+  // Drafts and archived entries are excluded from Timeline/Constellation/Analytics
+  // by default — they're either incomplete or intentionally set aside.
+  return e.status !== 'draft' && !e.archived;
+}
+function isSealed(e){
+  const s = SECTIONS[e.section] || {};
+  return s.timeLocked && e.unlockDate && new Date(e.unlockDate) > new Date();
+}
 
 // ---------------------------------------------------------------------------
 // DATA ACCESS
@@ -82,7 +110,117 @@ async function loadAllEntriesForOverview(){
 }
 
 // ---------------------------------------------------------------------------
-// DRAWERS (CABINET)
+// SHARED ENTRY CARD
+// ---------------------------------------------------------------------------
+
+function highlightText(text, query){
+  if(!query) return escapeHtml(text);
+  const escaped = escapeHtml(text);
+  const q = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return escaped.replace(new RegExp(`(${q})`, 'ig'), '<mark class="search-hit">$1</mark>');
+}
+
+function entryCardHtml(e, opts = {}){
+  const s = SECTIONS[e.section] || {};
+  const locked = isSealed(e);
+  const canEditThis = currentUser && e.userId === currentUser.uid;
+  const showSourceTag = !!opts.showSource;
+  const hl = opts.highlightQuery || '';
+
+  if(locked){
+    return `<div class="entry-card locked">
+      <div class="meta"><span class="title">${escapeHtml(e.title)}</span><span class="badge sealed">Sealed until ${e.unlockDate}</span></div>
+      <div class="sealed-box">This one stays shut until ${e.unlockDate}.</div>
+      ${canEditThis ? `<button class="del-btn" data-id="${e.id}" data-section="${e.section}">Delete entry</button>` : ''}
+    </div>`;
+  }
+  const qaHtml = Object.entries(e.answers||{}).filter(([,v])=>v && v.trim()).map(([pk,v])=>{
+    const pd = (s.prompts||[]).find(p=>p.key===pk);
+    return `<div class="q">${pd?pd.q:pk}</div><div class="a">${highlightText(v, hl)}</div>`;
+  }).join('');
+  const tagsHtml = (e.tags && e.tags.length) ? e.tags.map(t=>`<span class="tag-chip">#${escapeHtml(t)}</span>`).join('') : '';
+  const sourceChip = showSourceTag ? `<span class="tag-chip source-tag" data-jump="${e.section}" title="Jump to this drawer">${escapeHtml(s.label||e.section)}</span>` : '';
+  const draftBadge = e.status === 'draft' ? `<span class="badge draft">Draft</span>` : '';
+  const archivedBadge = e.archived ? `<span class="badge archived">Archived</span>` : '';
+
+  const actions = [];
+  if(canEditThis){
+    if(e.status === 'draft'){
+      actions.push(`<button class="del-btn" data-publish-id="${e.id}" data-publish-section="${e.section}" style="color:#8fd6b0;">Publish</button>`);
+    }
+    actions.push(`<button class="del-btn" data-fav-id="${e.id}" data-fav-section="${e.section}" data-fav-state="${!!e.favorite}" style="color:var(--gold);">${e.favorite ? 'Unfavorite' : 'Favorite'}</button>`);
+    actions.push(`<button class="del-btn" data-archive-id="${e.id}" data-archive-section="${e.section}" data-archive-state="${!!e.archived}">${e.archived ? 'Unarchive' : 'Archive'}</button>`);
+    actions.push(`<button class="del-btn" data-edit-id="${e.id}" data-edit-section="${e.section}" style="color:var(--gold);">Edit entry</button>`);
+    actions.push(`<button class="del-btn" data-id="${e.id}" data-section="${e.section}">Delete entry</button>`);
+  }
+
+  return `<div class="entry-card${opts.resultStyle?' result':''}">
+    <div class="meta"><span class="title">${e.favorite ? '★ ' : ''}${highlightText(e.title, hl)}</span><span class="stamp-meta">${fmtDate(e.createdAt)}</span></div>
+    <div class="tag-row">${sourceChip}${draftBadge}${archivedBadge}<span class="tag-chip">${escapeHtml(e.lifeStage||'')}</span><span class="tag-chip">${escapeHtml(e.emotion||'')}</span><span class="tag-chip">${escapeHtml(e.audienceLabel||'Just me')}</span>${tagsHtml}</div>
+    <div class="qa">${qaHtml}</div>
+    ${e.contradiction ? `<div class="contradiction">"${highlightText(e.contradiction, hl)}"</div>` : ''}
+    ${e.anchor ? `<div class="anchor"><b>Memory anchor —</b> ${highlightText(e.anchor, hl)}</div>` : ''}
+    ${actions.length ? `<div class="draft-actions" style="flex-wrap:wrap;">${actions.join('')}</div>` : ''}
+  </div>`;
+}
+
+function wireEntryCardActions(container, { onChanged } = {}){
+  container.querySelectorAll('[data-id]').forEach(b=>{
+    b.addEventListener('click', async ()=>{
+      if(!confirm('Delete this memory? This can\'t be undone.')) return;
+      await deleteMemory(currentUser.uid, b.dataset.id);
+      await refreshOverview();
+      if(openDrawer === b.dataset.section){ resetDrawerPagination(openDrawer); await loadDrawerPage(openDrawer, true); }
+      if(onChanged) onChanged();
+    });
+  });
+  container.querySelectorAll('[data-fav-id]').forEach(b=>{
+    b.addEventListener('click', async ()=>{
+      const newState = b.dataset.favState !== 'true';
+      await updateMemory(currentUser.uid, b.dataset.favId, { favorite: newState });
+      await refreshOverview();
+      if(openDrawer === b.dataset.favSection){ resetDrawerPagination(openDrawer); await loadDrawerPage(openDrawer, true); }
+      if(onChanged) onChanged();
+    });
+  });
+  container.querySelectorAll('[data-archive-id]').forEach(b=>{
+    b.addEventListener('click', async ()=>{
+      const newState = b.dataset.archiveState !== 'true';
+      await updateMemory(currentUser.uid, b.dataset.archiveId, { archived: newState });
+      await refreshOverview();
+      if(openDrawer === b.dataset.archiveSection){ resetDrawerPagination(openDrawer); await loadDrawerPage(openDrawer, true); }
+      if(onChanged) onChanged();
+    });
+  });
+  container.querySelectorAll('[data-publish-id]').forEach(b=>{
+    b.addEventListener('click', async ()=>{
+      await updateMemory(currentUser.uid, b.dataset.publishId, { status: 'published' });
+      await refreshOverview();
+      if(openDrawer === b.dataset.publishSection){ resetDrawerPagination(openDrawer); await loadDrawerPage(openDrawer, true); }
+      if(onChanged) onChanged();
+    });
+  });
+  container.querySelectorAll('[data-edit-id]').forEach(b=>{
+    b.addEventListener('click', async ()=>{
+      const section = b.dataset.editSection;
+      if(openDrawer !== section){ openDrawer = section; buildCabinet(); await renderDrawerContent(section); }
+      const entries = await loadSectionEntries(section);
+      const entry = entries.find(x=>x.id === b.dataset.editId);
+      if(entry) beginEdit(section, entry);
+      document.getElementById('locker').scrollIntoView({behavior:'smooth'});
+    });
+  });
+  container.querySelectorAll('[data-jump]').forEach(chip=>{
+    chip.addEventListener('click', ()=>{
+      const section = chip.dataset.jump;
+      openDrawer = section; buildCabinet(); renderDrawerContent(section);
+      document.getElementById('locker').scrollIntoView({behavior:'smooth'});
+    });
+  });
+}
+
+// ---------------------------------------------------------------------------
+// DRAWERS (CABINET) — now with real pagination + graceful fallback
 // ---------------------------------------------------------------------------
 
 function buildCabinet(){
@@ -110,10 +248,53 @@ function buildCabinet(){
   if(openDrawer) renderDrawerContent(openDrawer);
 }
 
+function resetDrawerPagination(key){
+  drawerPageState[key] = { lastDoc:null, hasMore:true, loaded:[], usingFallback:false, showArchived:false };
+}
+
+/**
+ * Loads one page of a drawer's entries via the new paginated query. If the
+ * required composite index isn't ready yet (or any other error occurs), this
+ * falls back to the original full-fetch so the drawer still works exactly as
+ * before — pagination degrades gracefully instead of breaking the app.
+ */
+async function loadDrawerPage(key, isFirstPage){
+  const s = SECTIONS[key];
+  if(!drawerPageState[key]) resetDrawerPagination(key);
+  const state = drawerPageState[key];
+
+  if(s.shared){
+    // Society stays as a single full fetch (public collectionGroup query,
+    // unchanged from before) — pagination applies to owner-only drawers.
+    if(isFirstPage){ state.loaded = await getPublicMemories('society'); state.hasMore = false; }
+    return renderEntries(key, state.loaded, state);
+  }
+  if(!currentUser) return;
+
+  if(state.usingFallback){
+    if(isFirstPage){ state.loaded = await getUserMemoriesBySection(currentUser.uid, key); state.hasMore = false; }
+    return renderEntries(key, state.loaded, state);
+  }
+
+  try{
+    const cursor = isFirstPage ? null : state.lastDoc;
+    const page = await getUserMemoriesPage(currentUser.uid, key, PAGE_SIZE, cursor);
+    state.loaded = isFirstPage ? page.items : state.loaded.concat(page.items);
+    state.lastDoc = page.lastDoc;
+    state.hasMore = page.hasMore;
+  }catch(err){
+    console.warn('Paginated query unavailable (likely missing composite index) — falling back to full fetch for', key, err);
+    state.usingFallback = true;
+    state.loaded = await getUserMemoriesBySection(currentUser.uid, key);
+    state.hasMore = false;
+  }
+  renderEntries(key, state.loaded, state);
+}
+
 async function renderDrawerContent(key){
   const s = SECTIONS[key]; const el = document.getElementById('inner-'+key); if(!el) return;
   el.innerHTML = `<div class="empty-state">Loading…</div>`;
-  const entries = await loadSectionEntries(key);
+  resetDrawerPagination(key);
 
   const gateHtml = (!s.shared && !currentUser) ? `
     <div class="auth-gate">
@@ -157,6 +338,7 @@ async function renderDrawerContent(key){
       ${s.timeLocked ? `<div style="margin-top:16px;"><label>Unlock date</label><input type="date" id="f-unlock-${key}"></div>` : ''}
       <div class="form-actions">
         <button type="submit" class="btn solid" id="submitLabel-${key}">Save to this drawer</button>
+        ${!s.shared ? `<button type="button" class="btn" id="draftBtn-${key}">Save as draft</button>` : ''}
         <button type="button" class="btn" id="cancelForm-${key}">Never mind</button>
         <span class="form-status" id="formStatus-${key}"></span>
       </div>
@@ -177,10 +359,12 @@ async function renderDrawerContent(key){
       editingId[key] = null;
       document.getElementById('entryForm-'+key).classList.remove('open');
     });
-    document.getElementById('entryForm-'+key).addEventListener('submit', (ev)=> onSubmitEntry(ev, key));
+    document.getElementById('entryForm-'+key).addEventListener('submit', (ev)=> onSubmitEntry(ev, key, 'published'));
+    const draftBtn = document.getElementById('draftBtn-'+key);
+    if(draftBtn) draftBtn.addEventListener('click', ()=> onSubmitEntry(null, key, 'draft'));
   }
 
-  renderEntries(key, entries);
+  await loadDrawerPage(key, true);
 }
 
 function resetForm(key){
@@ -190,63 +374,27 @@ function resetForm(key){
   document.getElementById('submitLabel-'+key).textContent = 'Save to this drawer';
 }
 
-function renderEntries(key, entries){
+function renderEntries(key, entries, state){
   const s = SECTIONS[key]; const list = document.getElementById('entriesList-'+key); if(!list) return;
-  if(!entries.length){
-    list.innerHTML = `<div class="empty-state">Nothing filed yet in this drawer.${(s.shared||currentUser)?' Write the first memory.':''}</div>`;
-    return;
+  const showArchived = state?.showArchived;
+  const visible = entries.filter(e => showArchived || !e.archived);
+  const archivedCount = entries.filter(e=>e.archived).length;
+
+  const toggleHtml = archivedCount ? `<button class="show-archived-toggle" id="archToggle-${key}">${showArchived ? 'Hide archived' : `Show ${archivedCount} archived`}</button>` : '';
+  const loadMoreHtml = state && state.hasMore ? `<div class="load-more-wrap"><button class="btn" id="loadMore-${key}">Load more</button>${state.usingFallback ? '' : '<div class="pagination-note">Paginated — 8 at a time</div>'}</div>` : '';
+
+  if(!visible.length){
+    list.innerHTML = `${toggleHtml}<div class="empty-state">Nothing filed yet in this drawer.${(s.shared||currentUser)?' Write the first memory.':''}</div>${loadMoreHtml}`;
+  } else {
+    const sorted = [...visible].sort((a,b)=> tsValue(b.createdAt) - tsValue(a.createdAt));
+    list.innerHTML = `${toggleHtml}${sorted.map(e=> entryCardHtml(e)).join('')}${loadMoreHtml}`;
   }
-  const sorted = [...entries].sort((a,b)=> tsValue(b.createdAt) - tsValue(a.createdAt));
-  const canEdit = (uid)=> currentUser && uid === currentUser.uid;
 
-  list.innerHTML = sorted.map(e=>{
-    const isLocked = s.timeLocked && e.unlockDate && new Date(e.unlockDate) > new Date();
-    if(isLocked){
-      return `<div class="entry-card locked"><div class="meta"><span class="title">${escapeHtml(e.title)}</span><span class="badge sealed">Sealed until ${e.unlockDate}</span></div>
-        <div class="sealed-box">This one stays shut until ${e.unlockDate}.</div>
-        ${canEdit(e.userId) ? `<button class="del-btn" data-id="${e.id}">Delete entry</button>` : ''}
-      </div>`;
-    }
-    const qaHtml = Object.entries(e.answers||{}).filter(([,v])=>v && v.trim()).map(([pk,v])=>{ const pd=s.prompts.find(p=>p.key===pk); return `<div class="q">${pd?pd.q:pk}</div><div class="a">${escapeHtml(v)}</div>`; }).join('');
-    const tagsHtml = (e.tags && e.tags.length) ? e.tags.map(t=>`<span class="tag-chip">#${escapeHtml(t)}</span>`).join('') : '';
-    return `<div class="entry-card">
-      <div class="meta"><span class="title">${e.favorite ? '★ ' : ''}${escapeHtml(e.title)}</span><span class="stamp-meta">${fmtDate(e.createdAt)}</span></div>
-      <div class="tag-row"><span class="tag-chip">${escapeHtml(e.lifeStage||'')}</span><span class="tag-chip">${escapeHtml(e.emotion||'')}</span><span class="tag-chip">${escapeHtml(e.audienceLabel||'Just me')}</span>${tagsHtml}</div>
-      <div class="qa">${qaHtml}</div>
-      ${e.contradiction ? `<div class="contradiction">"${escapeHtml(e.contradiction)}"</div>` : ''}
-      ${e.anchor ? `<div class="anchor"><b>Memory anchor —</b> ${escapeHtml(e.anchor)}</div>` : ''}
-      ${canEdit(e.userId) ? `
-        <div style="display:flex; gap:14px; margin-top:12px;">
-          <button class="del-btn" data-fav-id="${e.id}" data-fav-state="${!!e.favorite}" style="color:var(--gold);">${e.favorite ? 'Unfavorite' : 'Favorite'}</button>
-          <button class="del-btn" data-edit-id="${e.id}" style="color:var(--gold);">Edit entry</button>
-          <button class="del-btn" data-id="${e.id}">Delete entry</button>
-        </div>` : ''}
-    </div>`;
-  }).join('');
-
-  list.querySelectorAll('[data-id]').forEach(b=>{
-    b.addEventListener('click', async ()=>{
-      if(!confirm('Delete this memory? This can\'t be undone.')) return;
-      await deleteMemory(currentUser.uid, b.dataset.id);
-      const fresh = await loadSectionEntries(key);
-      renderEntries(key, fresh);
-      refreshOverview();
-    });
-  });
-  list.querySelectorAll('[data-edit-id]').forEach(b=>{
-    b.addEventListener('click', ()=>{
-      const entry = sorted.find(x=>x.id === b.dataset.editId);
-      if(entry) beginEdit(key, entry);
-    });
-  });
-  list.querySelectorAll('[data-fav-id]').forEach(b=>{
-    b.addEventListener('click', async ()=>{
-      const newState = b.dataset.favState !== 'true';
-      await updateMemory(currentUser.uid, b.dataset.favId, { favorite: newState });
-      const fresh = await loadSectionEntries(key);
-      renderEntries(key, fresh);
-    });
-  });
+  wireEntryCardActions(list);
+  const archToggle = document.getElementById('archToggle-'+key);
+  if(archToggle) archToggle.addEventListener('click', ()=>{ state.showArchived = !state.showArchived; renderEntries(key, entries, state); });
+  const loadMoreBtn = document.getElementById('loadMore-'+key);
+  if(loadMoreBtn) loadMoreBtn.addEventListener('click', ()=>{ loadMoreBtn.textContent = 'Loading…'; loadDrawerPage(key, false); });
 }
 
 function beginEdit(key, entry){
@@ -269,8 +417,8 @@ function beginEdit(key, entry){
   form.scrollIntoView({behavior:'smooth', block:'center'});
 }
 
-async function onSubmitEntry(ev, key){
-  ev.preventDefault();
+async function onSubmitEntry(ev, key, saveStatus){
+  if(ev) ev.preventDefault();
   const s = SECTIONS[key];
   if(!currentUser){ openAuthModal('login'); return; }
 
@@ -285,10 +433,11 @@ async function onSubmitEntry(ev, key){
   const audienceLabel = document.getElementById('f-audience-'+key).value;
   const unlockEl = document.getElementById('f-unlock-'+key); const unlockDate = unlockEl ? unlockEl.value : null;
 
-  const status = document.getElementById('formStatus-'+key);
-  status.textContent = 'Saving…';
+  const finalStatus = s.shared ? 'published' : saveStatus;
+  const statusEl = document.getElementById('formStatus-'+key);
+  statusEl.textContent = finalStatus === 'draft' ? 'Saving draft…' : 'Saving…';
 
-  const payload = { title, answers, contradiction, anchor, tags, lifeStage, emotion, favorite, audienceLabel, unlockDate };
+  const payload = { title, answers, contradiction, anchor, tags, lifeStage, emotion, favorite, audienceLabel, unlockDate, status: finalStatus };
 
   try{
     if(editingId[key]){
@@ -296,71 +445,288 @@ async function onSubmitEntry(ev, key){
     } else {
       await createMemory(currentUser.uid, key, { ...payload, visibility: s.shared ? 'public' : 'private' });
     }
-    status.textContent = 'Saved.';
-    showStamp();
+    statusEl.textContent = finalStatus === 'draft' ? 'Saved as draft.' : 'Saved.';
+    showStamp(finalStatus === 'draft' ? 'Saved as draft' : 'Saved to the locker');
   }catch(err){
     console.error(err);
-    status.textContent = 'Something went wrong — try again.';
+    statusEl.textContent = 'Something went wrong — try again.';
     return;
   }
 
   editingId[key] = null;
   resetForm(key);
   document.getElementById('entryForm-'+key).classList.remove('open');
-  const fresh = await loadSectionEntries(key);
-  renderEntries(key, fresh);
-  refreshOverview();
-  setTimeout(()=>{ if(status) status.textContent=''; }, 2200);
+  resetDrawerPagination(key);
+  await loadDrawerPage(key, true);
+  await refreshOverview();
+  setTimeout(()=>{ if(statusEl) statusEl.textContent=''; }, 2200);
 }
 
-function showStamp(){
+function showStamp(text){
   if(window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-  const el = document.createElement('div'); el.className='stamp-fx'; el.textContent='Saved to the locker';
+  const el = document.createElement('div'); el.className='stamp-fx'; el.textContent = text || 'Saved to the locker';
   document.body.appendChild(el); setTimeout(()=>el.remove(),900);
 }
 
 // ---------------------------------------------------------------------------
-// LIFE IN NUMBERS / CORRIDOR / CONSTELLATION
+// DASHBOARD
 // ---------------------------------------------------------------------------
 
-function animateCount(el, target, dur=1.4){
+function computeStreaks(dateSet){
+  // dateSet: Set of 'YYYY-MM-DD' strings
+  if(!dateSet.size) return { current:0, longest:0 };
+  const dates = [...dateSet].sort();
+  let longest = 1, run = 1;
+  for(let i=1;i<dates.length;i++){
+    const prev = new Date(dates[i-1]); const cur = new Date(dates[i]);
+    const diffDays = Math.round((cur - prev) / 86400000);
+    if(diffDays === 1) run++; else run = 1;
+    if(run > longest) longest = run;
+  }
+  // current streak: walk backwards from today (or yesterday, if nothing today)
+  const today = new Date(); today.setHours(0,0,0,0);
+  let cursor = new Date(today);
+  let current = 0;
+  const fmt = (d)=> d.toISOString().slice(0,10);
+  if(!dateSet.has(fmt(cursor))) cursor.setDate(cursor.getDate()-1); // allow "yesterday" to still count as an active streak
+  while(dateSet.has(fmt(cursor))){ current++; cursor.setDate(cursor.getDate()-1); }
+  return { current, longest };
+}
+
+function animateCount(el, target, dur=1.2){
   gsap.fromTo(el, {innerText:0}, { innerText:target, duration:dur, ease:'power2.out', snap:{innerText:1}, onUpdate(){ el.textContent = Math.round(this.targets()[0].innerText); } });
 }
 
-async function refreshOverview(){
-  const all = await loadAllEntriesForOverview();
-  renderNumbers(all);
-  renderTimeline(all);
-  renderConstellation(all);
-  ScrollTrigger.refresh();
+function renderDashboard(){
+  const grid = document.getElementById('dashGrid');
+  const lists = document.getElementById('dashLists');
+  if(!grid) return;
+  const all = allEntriesCache;
+
+  const now = new Date();
+  const thisMonthCount = all.filter(e=>{ const d = tsDate(e.createdAt); return d.getFullYear()===now.getFullYear() && d.getMonth()===now.getMonth(); }).length;
+  const thisYearCount = all.filter(e=>{ const d = tsDate(e.createdAt); return d.getFullYear()===now.getFullYear(); }).length;
+  const favCount = all.filter(e=>e.favorite).length;
+  const legacyCount = all.filter(e=>e.section==='legacy').length;
+  const archivedCount = all.filter(e=>e.archived).length;
+  const draftCount = all.filter(e=>e.status==='draft').length;
+
+  const dateSet = new Set(all.map(e=> tsDate(e.createdAt).toISOString().slice(0,10)));
+  const { current, longest } = computeStreaks(dateSet);
+
+  const cards = [
+    { label:'Total memories', value: all.length },
+    { label:'Favorites', value: favCount },
+    { label:'Legacy memories', value: legacyCount },
+    { label:'Archived', value: archivedCount },
+    { label:'Drafts', value: draftCount },
+    { label:'This month', value: thisMonthCount },
+    { label:'This year', value: thisYearCount },
+    { label:'Writing streak (days)', value: current },
+    { label:'Longest streak (days)', value: longest },
+  ];
+  grid.innerHTML = cards.map(c=>`<div class="dash-card"><div class="dash-count" data-target="${c.value}">0</div><div class="dash-label">${c.label}</div></div>`).join('');
+
+  const recentAdded = [...all].sort((a,b)=>tsValue(b.createdAt)-tsValue(a.createdAt)).slice(0,5);
+  const recentUpdated = [...all]
+    .filter(e=> e.updatedAt && tsValue(e.updatedAt) > tsValue(e.createdAt) + 1000)
+    .sort((a,b)=>tsValue(b.updatedAt)-tsValue(a.updatedAt)).slice(0,5);
+
+  const listHtml = (items, emptyMsg, useUpdated)=> items.length
+    ? items.map(e=>`<div class="dash-list-item"><span class="dl-title">${escapeHtml(e.title)}</span><span class="dl-meta">${fmtDate(useUpdated ? e.updatedAt : e.createdAt)}</span></div>`).join('')
+    : `<div class="empty-state" style="padding:6px 0;">${emptyMsg}</div>`;
+
+  lists.innerHTML = `
+    <div class="dash-list-card"><h3>Recently added</h3>${listHtml(recentAdded, 'Nothing filed yet.', false)}</div>
+    <div class="dash-list-card"><h3>Recently updated</h3>${listHtml(recentUpdated, 'Nothing edited yet — new entries don\u2019t count as updates.', true)}</div>
+  `;
 }
 
-function renderNumbers(all){
+// ---------------------------------------------------------------------------
+// LIFE IN NUMBERS (Chapter 4 — kept as the narrative summary, unchanged shape)
+// ---------------------------------------------------------------------------
+
+function renderNumbers(){
+  const all = allEntriesCache.filter(isVisibleForAnalytics);
   const stages = new Set(all.filter(e=>e.lifeStage).map(e=>e.lifeStage));
   document.getElementById('statMemories').dataset.target = all.length;
   document.getElementById('statStages').dataset.target = stages.size;
+
+  const breakdown = document.getElementById('numbersBreakdown');
+  if(breakdown){
+    breakdown.innerHTML = order.map(k=>{
+      const s = SECTIONS[k];
+      const count = all.filter(e=>e.section===k).length;
+      return `<span class="breakdown-chip"><span class="dot" style="background:${s.hex}"></span>${s.label} · ${count}</span>`;
+    }).join('');
+  }
+
+  const highlightsEl = document.getElementById('numbersHighlights');
+  if(highlightsEl){
+    if(!all.length){ highlightsEl.innerHTML = ''; }
+    else{
+      const emotionCounts = {};
+      all.forEach(e=>{ if(e.emotion) emotionCounts[e.emotion] = (emotionCounts[e.emotion]||0)+1; });
+      const topEmotion = Object.entries(emotionCounts).sort((a,b)=>b[1]-a[1])[0];
+      const favCount = all.filter(e=>e.favorite).length;
+      const mostRecent = [...all].sort((a,b)=>tsValue(b.createdAt)-tsValue(a.createdAt))[0];
+      highlightsEl.innerHTML = `
+        ${topEmotion ? `<span>Most-felt emotion: <b>${escapeHtml(topEmotion[0])}</b></span>` : ''}
+        <span>Favorites: <b>${favCount}</b></span>
+        ${mostRecent ? `<span>Last written: <b>${fmtDate(mostRecent.createdAt)}</b></span>` : ''}
+      `;
+    }
+  }
 }
 
-function renderTimeline(all){
-  const el = document.getElementById('timelineList');
-  if(!all.length){ el.innerHTML = `<div class="empty-state">No memories filed yet across any drawer.</div>`; return; }
+// ---------------------------------------------------------------------------
+// TIMELINE V2 — chronological, sticky year headers, month groups,
+// expand/collapse, jump-to-year, lazy/incremental rendering, GSAP reveal
+// ---------------------------------------------------------------------------
+
+function initTimelineFilter(){
+  const el = document.getElementById('timelineFilter');
+  if(!el) return;
+  const chips = ['all', ...order].map(k=>{
+    const label = k==='all' ? 'All' : SECTIONS[k].label;
+    return `<button class="filter-chip ${k===timelineSectionFilter?'active':''}" data-tl-section="${k}">${label}</button>`;
+  }).join('');
+  el.innerHTML = chips;
+  el.querySelectorAll('[data-tl-section]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      timelineSectionFilter = btn.dataset.tlSection;
+      el.querySelectorAll('.filter-chip').forEach(c=>c.classList.remove('active'));
+      btn.classList.add('active');
+      buildTimelineData();
+      renderTimelineIncremental(true);
+    });
+  });
+}
+
+function buildTimelineData(){
+  let all = allEntriesCache.filter(isVisibleForAnalytics).filter(e=>!isSealed(e));
+  if(timelineSectionFilter !== 'all') all = all.filter(e=>e.section === timelineSectionFilter);
+
   const withMeta = all.map(e=>{
     const s = SECTIONS[e.section] || {};
-    const isLocked = s.timeLocked && e.unlockDate && new Date(e.unlockDate) > new Date();
-    return { ...e, sectionLabel: s.label || e.section, hex: s.hex || '#d4af6a', locked: isLocked };
+    const d = tsDate(e.createdAt);
+    return { ...e, sectionLabel:s.label||e.section, hex:s.hex||'#d4af6a', year:d.getFullYear(), month:d.getMonth() };
+  }).sort((a,b)=> tsValue(a.createdAt) - tsValue(b.createdAt)); // chronological, oldest first
+
+  const byYear = new Map();
+  withMeta.forEach(e=>{
+    if(!byYear.has(e.year)) byYear.set(e.year, new Map());
+    const monthsMap = byYear.get(e.year);
+    if(!monthsMap.has(e.month)) monthsMap.set(e.month, []);
+    monthsMap.get(e.month).push(e);
   });
-  withMeta.sort((a,b)=>{ const sa=LIFE_STAGES.indexOf(a.lifeStage), sb=LIFE_STAGES.indexOf(b.lifeStage); if(sa!==sb) return sa-sb; return tsValue(a.createdAt)-tsValue(b.createdAt); });
-  el.innerHTML = withMeta.map(e=>`
-    <div class="tl-node" style="--dot:${e.hex}">
-      <div class="tl-stage">${e.lifeStage || 'Unstaged'}</div>
-      <div class="tl-card"><div class="title">${e.locked?'🔒 ':''}${e.favorite?'★ ':''}${escapeHtml(e.title)}</div><div class="sub">${e.sectionLabel} · ${e.emotion||''} · ${fmtDate(e.createdAt)}</div></div>
-    </div>`).join('');
+
+  timelineYearGroups = [...byYear.entries()].sort((a,b)=>a[0]-b[0]).map(([year, monthsMap])=>({
+    year,
+    count: [...monthsMap.values()].reduce((sum,arr)=>sum+arr.length,0),
+    months: [...monthsMap.entries()].sort((a,b)=>a[0]-b[0]).map(([month, items])=>({ month, items })),
+  }));
+
+  // Populate jump-to-year select
+  const jumpSelect = document.getElementById('jumpToYearSelect');
+  if(jumpSelect){
+    jumpSelect.innerHTML = `<option value="">Jump to year…</option>` + timelineYearGroups.map(g=>`<option value="${g.year}">${g.year} (${g.count})</option>`).join('');
+  }
 }
 
+const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+
+function yearBlockHtml(group, collapsed){
+  return `<div class="year-block${collapsed?' collapsed':''}" data-year="${group.year}">
+    <div class="year-header" data-year-toggle="${group.year}">
+      <span class="year-num">${group.year}</span>
+      <span class="year-count">${group.count} ${group.count===1?'memory':'memories'} <span class="year-chev">⌄</span></span>
+    </div>
+    <div class="year-body">
+      ${group.months.map(m=>`
+        <div class="month-group">
+          <div class="month-group-label">${MONTH_NAMES[m.month]}</div>
+          <div class="timeline">
+            <div class="tl-line"></div>
+            ${m.items.map(e=>`
+              <div class="tl-node in" style="--dot:${e.hex}">
+                <div class="tl-card"><div class="title">${e.favorite?'★ ':''}${escapeHtml(e.title)}</div><div class="sub">${e.sectionLabel} · ${e.emotion||''} · ${fmtDate(e.createdAt)}</div></div>
+              </div>`).join('')}
+          </div>
+        </div>`).join('')}
+    </div>
+  </div>`;
+}
+
+let timelineObserver = null;
+
+function renderTimelineIncremental(reset){
+  const container = document.getElementById('timelineYears');
+  if(!container) return;
+  if(reset) timelineRenderedYears = 0;
+
+  if(!timelineYearGroups.length){
+    container.innerHTML = `<div class="empty-state">No memories filed yet${timelineSectionFilter!=='all' ? ' in this drawer' : ' across any drawer'}.</div>`;
+    return;
+  }
+  if(reset) container.innerHTML = '';
+
+  const BATCH = 3; // years per lazy batch — real infinite-scroll-style reveal over the cached dataset
+  const nextSlice = timelineYearGroups.slice(timelineRenderedYears, timelineRenderedYears + BATCH);
+  nextSlice.forEach((group, i)=>{
+    const wrap = document.createElement('div');
+    wrap.innerHTML = yearBlockHtml(group, false);
+    const node = wrap.firstElementChild;
+    node.style.opacity = '0';
+    container.appendChild(node);
+    gsap.to(node, { opacity:1, y:0, duration:0.6, delay:i*0.08, ease:'power2.out' });
+  });
+  timelineRenderedYears += nextSlice.length;
+
+  container.querySelectorAll('[data-year-toggle]').forEach(header=>{
+    if(header.dataset.bound) return;
+    header.dataset.bound = '1';
+    header.addEventListener('click', ()=>{
+      header.closest('.year-block').classList.toggle('collapsed');
+    });
+  });
+
+  const sentinel = document.getElementById('timelineSentinel');
+  if(sentinel && timelineObserver) timelineObserver.disconnect();
+  if(sentinel && timelineRenderedYears < timelineYearGroups.length){
+    timelineObserver = new IntersectionObserver((entries)=>{
+      if(entries[0].isIntersecting) renderTimelineIncremental(false);
+    }, { rootMargin:'400px' });
+    timelineObserver.observe(sentinel);
+  }
+}
+
+function initJumpToYear(){
+  const sel = document.getElementById('jumpToYearSelect');
+  if(!sel) return;
+  sel.addEventListener('change', ()=>{
+    const year = sel.value;
+    if(!year) return;
+    // Ensure enough years are rendered to include the target, then scroll to it.
+    const targetIndex = timelineYearGroups.findIndex(g=>String(g.year)===year);
+    const revealBatches = ()=>{
+      const el = document.querySelector(`.year-block[data-year="${year}"]`);
+      if(el){ el.classList.remove('collapsed'); el.scrollIntoView({behavior:'smooth', block:'start'}); }
+      else if(timelineRenderedYears < timelineYearGroups.length){ renderTimelineIncremental(false); setTimeout(revealBatches, 120); }
+    };
+    revealBatches();
+  });
+}
+
+// ---------------------------------------------------------------------------
+// CONSTELLATION — unchanged
+// ---------------------------------------------------------------------------
+
 let constNodes = [];
-function renderConstellation(all){
+function renderConstellation(){
   const emptyEl = document.getElementById('constEmpty');
   const canvas = document.getElementById('constellation');
+  const all = allEntriesCache.filter(isVisibleForAnalytics);
   constNodes = [];
   if(!all.length){ emptyEl.style.display='flex'; return; }
   emptyEl.style.display='none';
@@ -377,12 +743,12 @@ function renderConstellation(all){
 
 function initConstellationCanvas(){
   const canvas = document.getElementById('constellation'); const ctx = canvas.getContext('2d');
-  function resize(){ canvas.width = canvas.clientWidth * devicePixelRatio; canvas.height = 440 * devicePixelRatio; ctx.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0); }
+  function resize(){ canvas.width = canvas.clientWidth * devicePixelRatio; canvas.height = canvas.clientHeight * devicePixelRatio; ctx.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0); }
   resize(); window.addEventListener('resize', resize);
   let t=0;
   function draw(){
     t += 0.01;
-    const w = canvas.clientWidth, h=440;
+    const w = canvas.clientWidth, h = canvas.clientHeight;
     ctx.clearRect(0,0,w,h);
     for(let i=0;i<constNodes.length;i++){
       for(let j=i+1;j<constNodes.length;j++){
@@ -404,7 +770,367 @@ function initConstellationCanvas(){
 }
 
 // ---------------------------------------------------------------------------
-// AMBIENT CANVASES
+// GLOBAL SEARCH + FILTERS + SORT + SUGGESTIONS + HISTORY
+// ---------------------------------------------------------------------------
+
+function getRecentSearches(){ try{ return JSON.parse(localStorage.getItem('lsl-recent-searches')||'[]'); }catch(e){ return []; } }
+function addRecentSearch(q){
+  if(!q) return;
+  let list = getRecentSearches().filter(x=>x!==q);
+  list.unshift(q);
+  list = list.slice(0,5);
+  localStorage.setItem('lsl-recent-searches', JSON.stringify(list));
+  renderRecentSearches();
+}
+function renderRecentSearches(){
+  const el = document.getElementById('recentSearches');
+  if(!el) return;
+  const list = getRecentSearches();
+  el.innerHTML = list.length ? `<span class="pagination-note" style="margin:0 4px 0 0;">Recent:</span>` + list.map(q=>`<button class="recent-search-chip" data-recent="${escapeHtml(q)}">${escapeHtml(q)}</button>`).join('') : '';
+  el.querySelectorAll('[data-recent]').forEach(chip=>{
+    chip.addEventListener('click', ()=>{
+      document.getElementById('searchInput').value = chip.dataset.recent;
+      searchState.query = chip.dataset.recent.toLowerCase();
+      renderSearchHub();
+      hideSuggestions();
+    });
+  });
+}
+
+function showSuggestions(items){
+  const box = document.getElementById('searchSuggestions');
+  if(!box) return;
+  if(!items.length){ box.classList.remove('open'); box.innerHTML=''; return; }
+  box.innerHTML = items.map(it=>`<div class="sugg-item" data-sugg-id="${it.id}" data-sugg-section="${it.section}"><span>${escapeHtml(it.title)}</span><span class="sugg-meta">${escapeHtml(SECTIONS[it.section]?.label || it.section)}</span></div>`).join('');
+  box.classList.add('open');
+  box.querySelectorAll('[data-sugg-id]').forEach(row=>{
+    row.addEventListener('click', ()=>{
+      const entry = allEntriesCache.find(e=>e.id===row.dataset.suggId);
+      document.getElementById('searchInput').value = entry ? entry.title : '';
+      searchState.query = (entry ? entry.title : '').toLowerCase();
+      hideSuggestions();
+      renderSearchHub();
+      addRecentSearch(searchState.query);
+    });
+  });
+}
+function hideSuggestions(){ document.getElementById('searchSuggestions')?.classList.remove('open'); }
+
+function initSearchHub(){
+  const filterRow = document.getElementById('filterRow');
+  if(!filterRow) return;
+
+  const sectionChips = ['all', ...order].map(k=>{
+    const label = k==='all' ? 'All drawers' : SECTIONS[k].label;
+    return `<button class="filter-chip active" data-filter="section" data-value="${k}">${label}</button>`;
+  }).join('');
+
+  filterRow.innerHTML = `
+    ${sectionChips}
+    <select class="filter-select" id="emotionFilterSelect">
+      <option value="all">Any emotion</option>
+      ${EMOTIONS.map(e=>`<option value="${e}">${e}</option>`).join('')}
+    </select>
+    <select class="filter-select" id="stageFilterSelect">
+      <option value="all">Any life stage</option>
+      ${LIFE_STAGES.map(s=>`<option value="${s}">${s}</option>`).join('')}
+    </select>
+    <button class="filter-chip" id="favOnlyChip" data-fav-toggle>★ Favorites only</button>
+    <button class="filter-chip" id="archOnlyChip">Archived only</button>
+  `;
+
+  filterRow.querySelectorAll('[data-filter="section"]').forEach(chip=>{
+    chip.addEventListener('click', ()=>{
+      filterRow.querySelectorAll('[data-filter="section"]').forEach(c=>c.classList.remove('active'));
+      chip.classList.add('active');
+      searchState.section = chip.dataset.value;
+      renderSearchHub();
+    });
+  });
+  document.getElementById('emotionFilterSelect').addEventListener('change', (e)=>{ searchState.emotion = e.target.value; renderSearchHub(); });
+  document.getElementById('stageFilterSelect').addEventListener('change', (e)=>{ searchState.stage = e.target.value; renderSearchHub(); });
+  document.getElementById('favOnlyChip').addEventListener('click', (e)=>{
+    searchState.favoritesOnly = !searchState.favoritesOnly;
+    e.target.classList.toggle('active', searchState.favoritesOnly);
+    renderSearchHub();
+  });
+  document.getElementById('archOnlyChip').addEventListener('click', (e)=>{
+    searchState.archivedOnly = !searchState.archivedOnly;
+    e.target.classList.toggle('active', searchState.archivedOnly);
+    renderSearchHub();
+  });
+
+  const input = document.getElementById('searchInput');
+  input.addEventListener('input', debounce((e)=>{
+    const raw = e.target.value.trim();
+    searchState.query = raw.toLowerCase();
+    renderSearchHub();
+    if(raw.length >= 2){
+      const matches = allEntriesCache.filter(en => !isSealed(en) && en.title && en.title.toLowerCase().includes(raw.toLowerCase())).slice(0,5);
+      showSuggestions(matches);
+    } else hideSuggestions();
+  }, 200));
+  input.addEventListener('focus', ()=>{ if(!input.value) renderRecentSearches(); });
+  input.addEventListener('blur', ()=> setTimeout(hideSuggestions, 150));
+  input.addEventListener('keydown', (e)=>{ if(e.key==='Enter'){ hideSuggestions(); addRecentSearch(searchState.query); } });
+
+  document.getElementById('sortSelect').addEventListener('change', (e)=>{ searchState.sort = e.target.value; renderSearchHub(); });
+
+  renderRecentSearches();
+}
+
+function entryMatchesSearch(e, query){
+  if(!query) return true;
+  const haystack = [ e.title, ...Object.values(e.answers||{}), e.contradiction, e.anchor, ...(e.tags||[]), e.lifeStage, e.emotion ]
+    .filter(Boolean).join(' ').toLowerCase();
+  return haystack.includes(query);
+}
+
+function sortEntries(list, mode){
+  const arr = [...list];
+  if(mode === 'newest') arr.sort((a,b)=> tsValue(b.createdAt) - tsValue(a.createdAt));
+  else if(mode === 'oldest') arr.sort((a,b)=> tsValue(a.createdAt) - tsValue(b.createdAt));
+  else if(mode === 'az') arr.sort((a,b)=> (a.title||'').localeCompare(b.title||''));
+  else if(mode === 'stage') arr.sort((a,b)=> LIFE_STAGES.indexOf(a.lifeStage) - LIFE_STAGES.indexOf(b.lifeStage));
+  return arr;
+}
+
+function clearFilterChipLabel(key){
+  return { section:'drawer filter', emotion:'emotion filter', stage:'life stage filter', favoritesOnly:'favorites-only', archivedOnly:'archived-only', query:'search text' }[key];
+}
+
+function renderSearchHub(){
+  const resultsEl = document.getElementById('searchResults');
+  const countEl = document.getElementById('resultsCount');
+  if(!resultsEl) return;
+
+  let results = allEntriesCache.filter(e=>{
+    if(isSealed(e)) return false;
+    if(searchState.section !== 'all' && e.section !== searchState.section) return false;
+    if(searchState.emotion !== 'all' && e.emotion !== searchState.emotion) return false;
+    if(searchState.stage !== 'all' && e.lifeStage !== searchState.stage) return false;
+    if(searchState.favoritesOnly && !e.favorite) return false;
+    if(searchState.archivedOnly && !e.archived) return false;
+    if(!searchState.archivedOnly && e.archived) return false; // archived hidden from normal results unless explicitly requested
+    if(e.status === 'draft') return false; // drafts stay in their drawer, not in cross-archive search
+    if(!entryMatchesSearch(e, searchState.query)) return false;
+    return true;
+  });
+
+  results = sortEntries(results, searchState.sort);
+
+  countEl.textContent = allEntriesCache.length === 0
+    ? 'Nothing to search yet — write a memory first.'
+    : `${results.length} of ${allEntriesCache.length} memories`;
+
+  if(!results.length){
+    if(!allEntriesCache.length){ resultsEl.innerHTML = ''; return; }
+    const activeFilters = Object.entries({ section:searchState.section!=='all', emotion:searchState.emotion!=='all', stage:searchState.stage!=='all', favoritesOnly:searchState.favoritesOnly, archivedOnly:searchState.archivedOnly })
+      .filter(([,active])=>active).map(([k])=>k);
+    resultsEl.innerHTML = `<div class="no-results-help">
+      <div class="empty-state">No matches${searchState.query ? ` for "${escapeHtml(searchState.query)}"` : ''}.</div>
+      ${activeFilters.length ? `<div style="margin-top:10px;">${activeFilters.map(k=>`<button class="btn clear-filter-btn" data-clear="${k}">Clear ${clearFilterChipLabel(k)}</button>`).join('')}</div>` : ''}
+    </div>`;
+    resultsEl.querySelectorAll('[data-clear]').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        const k = btn.dataset.clear;
+        if(k==='section'){ searchState.section='all'; document.querySelector('[data-filter="section"][data-value="all"]')?.classList.add('active'); document.querySelectorAll('[data-filter="section"]').forEach(c=>{ if(c.dataset.value!=='all') c.classList.remove('active'); }); }
+        if(k==='emotion'){ searchState.emotion='all'; document.getElementById('emotionFilterSelect').value='all'; }
+        if(k==='stage'){ searchState.stage='all'; document.getElementById('stageFilterSelect').value='all'; }
+        if(k==='favoritesOnly'){ searchState.favoritesOnly=false; document.getElementById('favOnlyChip').classList.remove('active'); }
+        if(k==='archivedOnly'){ searchState.archivedOnly=false; document.getElementById('archOnlyChip').classList.remove('active'); }
+        renderSearchHub();
+      });
+    });
+    return;
+  }
+
+  resultsEl.innerHTML = results.map(e=> entryCardHtml(e, { showSource:true, resultStyle:true, highlightQuery:searchState.query })).join('');
+  wireEntryCardActions(resultsEl, { onChanged: renderSearchHub });
+}
+
+function goToFavorites(){
+  searchState.favoritesOnly = true;
+  document.getElementById('favOnlyChip')?.classList.add('active');
+  renderSearchHub();
+  document.getElementById('searchHubSec')?.scrollIntoView({behavior:'smooth'});
+}
+
+// ---------------------------------------------------------------------------
+// MEMORY ANALYTICS
+// ---------------------------------------------------------------------------
+
+function renderBarChart(containerId, dataMap, orderedKeys, opts = {}){
+  const el = document.getElementById(containerId);
+  if(!el) return;
+  const keys = orderedKeys || Object.keys(dataMap);
+  const present = keys.filter(k=>dataMap[k]);
+  const max = Math.max(1, ...keys.map(k=>dataMap[k]||0));
+  if(!present.length){ el.innerHTML = `<div class="chart-empty">No data yet.</div>`; return; }
+  el.innerHTML = present.map(k=>{
+    const val = dataMap[k]||0;
+    const pct = Math.round((val/max)*100);
+    return `<div class="chart-bar-row" title="${escapeHtml(String(k))}: ${val}">
+      <div class="chart-bar-label">${escapeHtml(String(k))}</div>
+      <div class="chart-bar-track"><div class="chart-bar-fill${opts.clickable?' clickable':''}" style="width:0%; background:var(--gold);" data-width="${pct}" data-key="${escapeHtml(String(k))}"></div></div>
+      <div class="chart-bar-count">${val}</div>
+    </div>`;
+  }).join('');
+  requestAnimationFrame(()=>{ el.querySelectorAll('.chart-bar-fill').forEach(bar=>{ bar.style.width = bar.dataset.width + '%'; }); });
+  if(opts.onClick){
+    el.querySelectorAll('.chart-bar-fill.clickable').forEach(bar=> bar.addEventListener('click', ()=> opts.onClick(bar.dataset.key)));
+  }
+}
+
+function renderActivityChart(){
+  const el = document.getElementById('chartActivity');
+  if(!el) return;
+  const all = allEntriesCache.filter(isVisibleForAnalytics);
+  const now = new Date();
+  const months = [];
+  for(let i=5;i>=0;i--){
+    const d = new Date(now.getFullYear(), now.getMonth()-i, 1);
+    months.push({ key:`${d.getFullYear()}-${d.getMonth()}`, label:d.toLocaleDateString('en-US',{month:'short'}), count:0 });
+  }
+  all.forEach(e=>{ const d = tsDate(e.createdAt); const key = `${d.getFullYear()}-${d.getMonth()}`; const m = months.find(m=>m.key===key); if(m) m.count++; });
+  const max = Math.max(1, ...months.map(m=>m.count));
+  if(!all.length){ el.innerHTML = `<div class="chart-empty">No data yet.</div>`; return; }
+  el.innerHTML = `<div class="activity-chart">${months.map(m=>`
+    <div class="activity-bar" title="${m.label}: ${m.count}">
+      <div class="count">${m.count||''}</div>
+      <div class="bar" style="height:0%;" data-height="${Math.round((m.count/max)*100)}"></div>
+      <div class="label">${m.label}</div>
+    </div>`).join('')}</div>`;
+  requestAnimationFrame(()=>{ el.querySelectorAll('.activity-bar .bar').forEach(bar=>{ bar.style.height = bar.dataset.height + '%'; }); });
+}
+
+function renderYearlyChart(){
+  const el = document.getElementById('chartYearly');
+  if(!el) return;
+  const all = allEntriesCache.filter(isVisibleForAnalytics);
+  if(!all.length){ el.innerHTML = `<div class="chart-empty">No data yet.</div>`; return; }
+  const counts = {};
+  all.forEach(e=>{ const y = tsDate(e.createdAt).getFullYear(); counts[y] = (counts[y]||0)+1; });
+  const years = Object.keys(counts).sort();
+  const max = Math.max(1, ...years.map(y=>counts[y]));
+  el.innerHTML = `<div class="activity-chart">${years.map(y=>`
+    <div class="activity-bar" title="${y}: ${counts[y]}">
+      <div class="count">${counts[y]}</div>
+      <div class="bar" style="height:0%;" data-height="${Math.round((counts[y]/max)*100)}"></div>
+      <div class="label">${y}</div>
+    </div>`).join('')}</div>`;
+  requestAnimationFrame(()=>{ el.querySelectorAll('.activity-bar .bar').forEach(bar=>{ bar.style.height = bar.dataset.height + '%'; }); });
+}
+
+function renderWeeklyPattern(){
+  const el = document.getElementById('chartWeekly');
+  if(!el) return;
+  const all = allEntriesCache.filter(isVisibleForAnalytics);
+  if(!all.length){ el.innerHTML = `<div class="chart-empty">No data yet.</div>`; return; }
+  const counts = new Array(7).fill(0);
+  all.forEach(e=>{ counts[tsDate(e.createdAt).getDay()]++; });
+  const max = Math.max(1, ...counts);
+  el.innerHTML = `<div class="weekly-chart">${DAY_NAMES.map((d,i)=>`
+    <div class="weekly-bar-col" title="${d}: ${counts[i]}">
+      <div class="bar" style="height:0%;" data-height="${Math.round((counts[i]/max)*100)}"></div>
+      <div class="label">${d}</div>
+    </div>`).join('')}</div>`;
+  requestAnimationFrame(()=>{ el.querySelectorAll('.weekly-bar-col .bar').forEach(bar=>{ bar.style.height = bar.dataset.height + '%'; }); });
+}
+
+function renderFavoritePct(){
+  const el = document.getElementById('chartFavPct');
+  if(!el) return;
+  const all = allEntriesCache.filter(isVisibleForAnalytics);
+  if(!all.length){ el.innerHTML = `<div class="chart-empty">No data yet.</div>`; return; }
+  const pct = Math.round((all.filter(e=>e.favorite).length / all.length) * 100);
+  el.innerHTML = `<div class="ring-stat">
+    <div class="ring-stat-track"><div class="ring-stat-fill" style="width:0%;" data-width="${pct}"></div></div>
+    <div class="ring-stat-pct">${pct}%</div>
+  </div>`;
+  requestAnimationFrame(()=>{ const fill = el.querySelector('.ring-stat-fill'); if(fill) fill.style.width = fill.dataset.width + '%'; });
+}
+
+function renderTopTags(){
+  const el = document.getElementById('chartTags');
+  if(!el) return;
+  const all = allEntriesCache.filter(isVisibleForAnalytics);
+  const counts = {};
+  all.forEach(e=> (e.tags||[]).forEach(t=>{ counts[t] = (counts[t]||0)+1; }));
+  const top = Object.entries(counts).sort((a,b)=>b[1]-a[1]).slice(0,8);
+  if(!top.length){ el.innerHTML = `<div class="chart-empty">No tags yet — add some when writing a memory.</div>`; return; }
+  const dataMap = {}; top.forEach(([k,v])=>{ dataMap[k]=v; });
+  renderBarChart('chartTags', dataMap, top.map(([k])=>k));
+}
+
+function renderHeatmap(){
+  const el = document.getElementById('chartHeatmap');
+  if(!el) return;
+  const all = allEntriesCache.filter(isVisibleForAnalytics);
+  const days = 84; // 12 weeks
+  const counts = {};
+  all.forEach(e=>{ const key = tsDate(e.createdAt).toISOString().slice(0,10); counts[key] = (counts[key]||0)+1; });
+  const today = new Date(); today.setHours(0,0,0,0);
+  const start = new Date(today); start.setDate(start.getDate() - (days-1));
+  // align start to a Sunday so columns represent whole weeks
+  start.setDate(start.getDate() - start.getDay());
+
+  const max = Math.max(1, ...Object.values(counts));
+  const cells = [];
+  const cursor = new Date(start);
+  while(cursor <= today){
+    const key = cursor.toISOString().slice(0,10);
+    const count = counts[key] || 0;
+    const intensity = count ? Math.min(1, 0.25 + (count/max)*0.75) : 0;
+    cells.push(`<div class="heatmap-cell" style="background:${count ? `rgba(212,175,106,${intensity})` : 'rgba(255,255,255,0.05)'};" title="${key}: ${count} ${count===1?'memory':'memories'}"></div>`);
+    cursor.setDate(cursor.getDate()+1);
+  }
+  if(!all.length){ el.innerHTML = `<div class="chart-empty">No data yet.</div>`; return; }
+  el.innerHTML = `<div class="heatmap-wrap"><div class="heatmap-grid">${cells.join('')}</div></div>
+    <div class="heatmap-legend">Less <span class="heatmap-cell" style="background:rgba(255,255,255,0.05);"></span><span class="heatmap-cell" style="background:rgba(212,175,106,0.4);"></span><span class="heatmap-cell" style="background:rgba(212,175,106,0.8);"></span><span class="heatmap-cell" style="background:rgba(212,175,106,1);"></span> More</div>`;
+}
+
+function renderAnalytics(){
+  const all = allEntriesCache.filter(isVisibleForAnalytics);
+  const emotionCounts = {}; EMOTIONS.forEach(e=> emotionCounts[e]=0);
+  const stageCounts = {}; LIFE_STAGES.forEach(s=> stageCounts[s]=0);
+  const drawerCounts = {}; order.forEach(k=> drawerCounts[SECTIONS[k].label]=0);
+  all.forEach(e=>{
+    if(e.emotion && emotionCounts[e.emotion] !== undefined) emotionCounts[e.emotion]++;
+    if(e.lifeStage && stageCounts[e.lifeStage] !== undefined) stageCounts[e.lifeStage]++;
+    const label = SECTIONS[e.section]?.label; if(label && drawerCounts[label] !== undefined) drawerCounts[label]++;
+  });
+
+  renderBarChart('chartEmotion', emotionCounts, EMOTIONS, { clickable:true, onClick:(k)=>{ searchState.emotion=k; document.getElementById('emotionFilterSelect').value=k; renderSearchHub(); document.getElementById('searchHubSec')?.scrollIntoView({behavior:'smooth'}); } });
+  renderBarChart('chartStage', stageCounts, LIFE_STAGES, { clickable:true, onClick:(k)=>{ searchState.stage=k; document.getElementById('stageFilterSelect').value=k; renderSearchHub(); document.getElementById('searchHubSec')?.scrollIntoView({behavior:'smooth'}); } });
+  renderBarChart('chartDrawer', drawerCounts, order.map(k=>SECTIONS[k].label));
+  renderFavoritePct();
+  renderActivityChart();
+  renderYearlyChart();
+  renderWeeklyPattern();
+  renderTopTags();
+  renderHeatmap();
+}
+
+// ---------------------------------------------------------------------------
+// REFRESH
+// ---------------------------------------------------------------------------
+
+async function refreshOverview(){
+  allEntriesCache = await loadAllEntriesForOverview();
+  renderNumbers();
+  renderDashboard();
+  buildTimelineData();
+  renderTimelineIncremental(true);
+  renderConstellation();
+  renderSearchHub();
+  renderAnalytics();
+  ScrollTrigger.refresh();
+  document.querySelectorAll('.dash-card .dash-count').forEach(el=> animateCount(el, +el.dataset.target || 0));
+}
+
+// ---------------------------------------------------------------------------
+// AMBIENT CANVASES — unchanged
 // ---------------------------------------------------------------------------
 
 function initDust(){
@@ -436,7 +1162,8 @@ function initEmbers(){
 }
 
 // ---------------------------------------------------------------------------
-// SCROLL STORYTELLING
+// SCROLL STORYTELLING — unchanged, now also covers Dashboard chapter
+// automatically via [data-atmos] / .reveal / .mask selectors
 // ---------------------------------------------------------------------------
 
 function initScrollStory(){
@@ -459,15 +1186,12 @@ function initScrollStory(){
   ScrollTrigger.create({ trigger:'#numbersGrid', start:'top 80%', once:true, onEnter:()=>{
     document.querySelectorAll('.numbers-item .count').forEach(el=> animateCount(el, +el.dataset.target || +el.textContent));
   }});
-  ScrollTrigger.create({ trigger:'#corridorSec', start:'top 70%', end:'bottom bottom', scrub:0.6,
-    onUpdate:(self)=>{ document.getElementById('tlFill').style.height = (self.progress*100)+'%'; } });
-  ScrollTrigger.create({ trigger:'#timelineList', start:'top 85%', onEnter:()=>{
-    document.querySelectorAll('.tl-node').forEach((n,i)=> setTimeout(()=>n.classList.add('in'), i*90));
-  }});
 }
 
 function initMagnetic(){
   document.querySelectorAll('.magnetic').forEach(btn=>{
+    if(btn.dataset.magneticBound) return;
+    btn.dataset.magneticBound = '1';
     btn.addEventListener('mousemove', (e)=>{
       const r = btn.getBoundingClientRect();
       const x = e.clientX - r.left - r.width/2, y = e.clientY - r.top - r.height/2;
@@ -478,7 +1202,7 @@ function initMagnetic(){
 }
 
 // ---------------------------------------------------------------------------
-// AUTH UI
+// AUTH UI — unchanged
 // ---------------------------------------------------------------------------
 
 let authMode = 'login';
@@ -558,6 +1282,7 @@ function initAuthUI(){
   });
 
   document.getElementById('themeToggle').addEventListener('click', toggleTheme);
+  document.getElementById('favoritesNavBtn')?.addEventListener('click', goToFavorites);
 }
 
 function friendlyAuthError(err){
@@ -600,7 +1325,7 @@ function renderAuthArea(){
 }
 
 // ---------------------------------------------------------------------------
-// THEME
+// THEME — unchanged
 // ---------------------------------------------------------------------------
 
 async function toggleTheme(){
@@ -622,7 +1347,7 @@ async function initTheme(){
 }
 
 // ---------------------------------------------------------------------------
-// HERO GLOW + VIEW BUTTONS
+// HERO GLOW + VIEW BUTTONS — unchanged
 // ---------------------------------------------------------------------------
 
 function initHeroGlow(){
@@ -650,6 +1375,9 @@ initHeroGlow();
 initViewButtons();
 initAuthUI();
 initTheme();
+initSearchHub();
+initTimelineFilter();
+initJumpToYear();
 
 onAuthChange(async (user)=>{
   currentUser = user;

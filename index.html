@@ -24,6 +24,7 @@
     <button class="btn magnetic" id="loginBtn">Log in</button>
     <button class="btn magnetic" id="signupBtn">Sign up</button>
   </div>
+  <button class="btn magnetic" id="favoritesNavBtn">★ Favorites</button>
   <button class="btn solid magnetic" onclick="document.getElementById('locker').scrollIntoView({behavior:'smooth'})">Open the locker</button>
 </div>
 
@@ -85,17 +86,76 @@
     <div class="numbers-item"><div class="count" data-target="0" id="statStages">0</div><div class="cap">Life stages touched</div></div>
     <div class="numbers-item"><div class="count" data-target="0">0</div><div class="cap">Things sold to advertisers</div></div>
   </div>
+  <div class="numbers-breakdown" id="numbersBreakdown"></div>
+  <div class="numbers-highlights" id="numbersHighlights"></div>
+</section>
+
+<!-- CHAPTER: DASHBOARD -->
+<section class="dashboard-sec" id="dashboardSec" data-atmos="#0f2233">
+  <div class="chapter-tag">Dashboard</div>
+  <h2 class="mask" style="font-size:clamp(1.6rem,3vw,2.2rem);"><span>Everything, at a glance</span></h2>
+  <p style="color:var(--muted); margin-top:10px; max-width:56ch;">A working view of the archive as it stands right now.</p>
+
+  <div class="dash-grid" id="dashGrid"></div>
+  <div class="dash-lists" id="dashLists"></div>
 </section>
 
 <!-- CHAPTER 5: CORRIDOR / TIMELINE -->
 <section class="corridor" id="corridorSec" data-atmos="#131b33">
   <div class="chapter-tag">Chapter five — the corridor</div>
   <h2 class="mask" style="font-size:clamp(1.6rem,3vw,2.2rem);"><span>Walk through it, in order</span></h2>
-  <p style="color:var(--muted); margin-top:12px; max-width:56ch;">Every memory from every drawer, laid end to end — from childhood to legacy.</p>
-  <div class="timeline">
-    <div class="tl-line"></div>
-    <div class="tl-line-fill" id="tlFill"></div>
-    <div id="timelineList"></div>
+  <p style="color:var(--muted); margin-top:12px; max-width:56ch;">Every memory from every drawer, laid end to end — chronologically, oldest first.</p>
+  <div class="timeline-filter" id="timelineFilter"></div>
+  <div class="corridor-controls">
+    <select class="jump-select" id="jumpToYearSelect"><option value="">Jump to year…</option></select>
+  </div>
+  <div class="timeline" id="timelineRoot">
+    <div id="timelineYears"></div>
+    <div class="timeline-sentinel" id="timelineSentinel"></div>
+  </div>
+</section>
+
+<!-- CHAPTER: SEARCH, FILTER, SORT, FAVORITES -->
+<section class="search-hub" id="searchHubSec" data-atmos="#16241c">
+  <div class="chapter-tag">Search the archive</div>
+  <h2 class="mask" style="font-size:clamp(1.5rem,3vw,2.1rem);"><span>Find anything you've written</span></h2>
+  <p style="color:var(--muted); margin-top:10px; max-width:56ch;">Search, filter, and sort across every drawer you can see — favorites included.</p>
+
+  <div class="search-toolbar">
+    <div class="search-wrap">
+      <input type="text" id="searchInput" class="search-input" placeholder="Search titles, answers, tags…" autocomplete="off">
+      <div class="search-suggestions" id="searchSuggestions"></div>
+    </div>
+    <select id="sortSelect" class="sort-select">
+      <option value="newest">Newest first</option>
+      <option value="oldest">Oldest first</option>
+      <option value="az">Title A–Z</option>
+      <option value="stage">By life stage</option>
+    </select>
+  </div>
+  <div class="recent-searches" id="recentSearches"></div>
+
+  <div class="filter-row" id="filterRow"></div>
+
+  <div class="results-count" id="resultsCount"></div>
+  <div class="entries" id="searchResults"></div>
+</section>
+
+<!-- CHAPTER: MEMORY ANALYTICS -->
+<section class="analytics-sec" id="analyticsSec" data-atmos="#20172c">
+  <div class="chapter-tag">Memory analytics</div>
+  <h2 class="mask" style="font-size:clamp(1.5rem,3vw,2.1rem);"><span>Patterns, not just entries</span></h2>
+  <p style="color:var(--muted); margin-top:10px; max-width:56ch;">A quiet read on what you've been feeling, and when you've been writing.</p>
+  <div class="analytics-grid">
+    <div class="chart-card"><h3>By emotion</h3><div id="chartEmotion" class="chart-body"></div></div>
+    <div class="chart-card"><h3>By life stage</h3><div id="chartStage" class="chart-body"></div></div>
+    <div class="chart-card"><h3>By drawer</h3><div id="chartDrawer" class="chart-body"></div></div>
+    <div class="chart-card"><h3>Favorite percentage</h3><div id="chartFavPct" class="chart-body"></div></div>
+    <div class="chart-card wide"><h3>Activity, last 6 months</h3><div id="chartActivity" class="chart-body"></div></div>
+    <div class="chart-card wide"><h3>Yearly growth</h3><div id="chartYearly" class="chart-body"></div></div>
+    <div class="chart-card"><h3>Weekly writing pattern</h3><div id="chartWeekly" class="chart-body"></div></div>
+    <div class="chart-card"><h3>Top tags</h3><div id="chartTags" class="chart-body"></div></div>
+    <div class="chart-card wide"><h3>Writing activity, last 12 weeks</h3><div id="chartHeatmap" class="chart-body"></div></div>
   </div>
 </section>
 
