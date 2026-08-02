@@ -68,10 +68,28 @@ let allEntriesCache = [];
 
 let searchState = { query:'', section:'all', emotion:'all', stage:'all', favoritesOnly:false, archivedOnly:false, sort:'newest' };
 let timelineSectionFilter = 'all';
-let timelineRenderedYears = 0; // for lazy/incremental rendering
-let timelineYearGroups = [];   // computed once per refresh, consumed incrementally
+let timelineRenderedYears = 0;
+let timelineYearGroups = [];
+const SEARCH_BATCH = 15;
+let searchRenderedCount = SEARCH_BATCH;
+let searchObserver = null;
 
 function escapeHtml(str){ const d=document.createElement('div'); d.textContent=str; return d.innerHTML; }
+
+const EMPTY_ICON = `<svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 24 L32 12 L56 24 L32 36 Z"/><path d="M8 24 V48 L32 60 L56 48 V24"/><path d="M32 36 V60"/></svg>`;
+
+function emptyStateRichHtml({ title, sub, ctaLabel, ctaAction }){
+  return `<div class="empty-state-rich">
+    ${EMPTY_ICON}
+    <div class="empty-title">${escapeHtml(title)}</div>
+    <div class="empty-sub">${escapeHtml(sub)}</div>
+    ${ctaLabel ? `<button class="btn solid" data-empty-cta="1">${escapeHtml(ctaLabel)}</button>` : ''}
+  </div>`;
+}
+function wireEmptyStateCta(container, action){
+  const btn = container.querySelector('[data-empty-cta]');
+  if(btn && action) btn.addEventListener('click', action);
+}
 function fmtDate(ts){
   const d = ts?.seconds ? new Date(ts.seconds*1000) : (ts instanceof Date ? ts : new Date(ts || Date.now()));
   return d.toLocaleDateString('en-US',{year:'numeric',month:'short',day:'numeric'});
@@ -384,7 +402,16 @@ function renderEntries(key, entries, state){
   const loadMoreHtml = state && state.hasMore ? `<div class="load-more-wrap"><button class="btn" id="loadMore-${key}">Load more</button>${state.usingFallback ? '' : '<div class="pagination-note">Paginated — 8 at a time</div>'}</div>` : '';
 
   if(!visible.length){
-    list.innerHTML = `${toggleHtml}<div class="empty-state">Nothing filed yet in this drawer.${(s.shared||currentUser)?' Write the first memory.':''}</div>${loadMoreHtml}`;
+    const emptyHtml = emptyStateRichHtml({
+      title: 'Nothing filed yet',
+      sub: (s.shared||currentUser) ? 'This drawer is waiting for its first memory.' : 'Sign in to start writing here.',
+      ctaLabel: (s.shared||currentUser) ? 'Write the first memory' : null,
+    });
+    list.innerHTML = `${toggleHtml}${emptyHtml}${loadMoreHtml}`;
+    wireEmptyStateCta(list, ()=>{
+      const form = document.getElementById('entryForm-'+key);
+      if(form){ form.classList.add('open'); form.scrollIntoView({behavior:'smooth', block:'center'}); }
+    });
   } else {
     const sorted = [...visible].sort((a,b)=> tsValue(b.createdAt) - tsValue(a.createdAt));
     list.innerHTML = `${toggleHtml}${sorted.map(e=> entryCardHtml(e)).join('')}${loadMoreHtml}`;
@@ -666,7 +693,12 @@ function renderTimelineIncremental(reset){
   if(reset) timelineRenderedYears = 0;
 
   if(!timelineYearGroups.length){
-    container.innerHTML = `<div class="empty-state">No memories filed yet${timelineSectionFilter!=='all' ? ' in this drawer' : ' across any drawer'}.</div>`;
+    container.innerHTML = emptyStateRichHtml({
+      title: 'The corridor is empty',
+      sub: `No memories filed yet${timelineSectionFilter!=='all' ? ' in this drawer' : ' across any drawer'}.`,
+      ctaLabel: 'Open the locker',
+    });
+    wireEmptyStateCta(container, ()=> document.getElementById('locker').scrollIntoView({behavior:'smooth'}));
     return;
   }
   if(reset) container.innerHTML = '';
@@ -899,7 +931,7 @@ function clearFilterChipLabel(key){
   return { section:'drawer filter', emotion:'emotion filter', stage:'life stage filter', favoritesOnly:'favorites-only', archivedOnly:'archived-only', query:'search text' }[key];
 }
 
-function renderSearchHub(){
+function renderSearchHub(resetBatch = true){
   const resultsEl = document.getElementById('searchResults');
   const countEl = document.getElementById('resultsCount');
   if(!resultsEl) return;
@@ -924,7 +956,16 @@ function renderSearchHub(){
     : `${results.length} of ${allEntriesCache.length} memories`;
 
   if(!results.length){
-    if(!allEntriesCache.length){ resultsEl.innerHTML = ''; return; }
+    if(searchObserver) searchObserver.disconnect();
+    if(!allEntriesCache.length){
+      resultsEl.innerHTML = emptyStateRichHtml({
+        title: 'Nothing to search yet',
+        sub: 'Write your first memory in any drawer, and it\u2019ll show up here.',
+        ctaLabel: 'Open the locker',
+      });
+      wireEmptyStateCta(resultsEl, ()=> document.getElementById('locker').scrollIntoView({behavior:'smooth'}));
+      return;
+    }
     const activeFilters = Object.entries({ section:searchState.section!=='all', emotion:searchState.emotion!=='all', stage:searchState.stage!=='all', favoritesOnly:searchState.favoritesOnly, archivedOnly:searchState.archivedOnly })
       .filter(([,active])=>active).map(([k])=>k);
     resultsEl.innerHTML = `<div class="no-results-help">
@@ -945,8 +986,25 @@ function renderSearchHub(){
     return;
   }
 
-  resultsEl.innerHTML = results.map(e=> entryCardHtml(e, { showSource:true, resultStyle:true, highlightQuery:searchState.query })).join('');
-  wireEntryCardActions(resultsEl, { onChanged: renderSearchHub });
+  // Batched/virtual rendering — only render a window of results at a time,
+  // growing as the user scrolls near the bottom, instead of mounting every
+  // matching card at once (matters once an archive has hundreds of entries).
+  if(resetBatch) searchRenderedCount = SEARCH_BATCH;
+  const visibleSlice = results.slice(0, searchRenderedCount);
+  const hasMore = results.length > visibleSlice.length;
+
+  resultsEl.innerHTML = visibleSlice.map(e=> entryCardHtml(e, { showSource:true, resultStyle:true, highlightQuery:searchState.query })).join('')
+    + (hasMore ? `<div class="search-sentinel" id="searchSentinel"></div>` : '');
+  wireEntryCardActions(resultsEl, { onChanged: ()=> renderSearchHub(true) });
+
+  if(searchObserver) searchObserver.disconnect();
+  const sentinel = document.getElementById('searchSentinel');
+  if(sentinel){
+    searchObserver = new IntersectionObserver((entries)=>{
+      if(entries[0].isIntersecting){ searchRenderedCount += SEARCH_BATCH; renderSearchHub(false); }
+    }, { rootMargin:'300px' });
+    searchObserver.observe(sentinel);
+  }
 }
 
 function goToFavorites(){
@@ -1201,6 +1259,21 @@ function initMagnetic(){
   });
 }
 
+// Museum-lighting cursor spotlight — one delegated listener covers every
+// card that exists now or is rendered later (drawers, dashboard, analytics,
+// timeline, search results), so no per-card wiring is needed anywhere else.
+function initSpotlight(){
+  if(window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const SPOTLIGHT_SELECTOR = '.entry-card, .dash-card, .chart-card, .metaphor-card, .tl-card';
+  document.addEventListener('mousemove', (e)=>{
+    const card = e.target.closest(SPOTLIGHT_SELECTOR);
+    if(!card) return;
+    const r = card.getBoundingClientRect();
+    card.style.setProperty('--sx', `${((e.clientX - r.left) / r.width) * 100}%`);
+    card.style.setProperty('--sy', `${((e.clientY - r.top) / r.height) * 100}%`);
+  }, { passive:true });
+}
+
 // ---------------------------------------------------------------------------
 // AUTH UI — unchanged
 // ---------------------------------------------------------------------------
@@ -1378,6 +1451,7 @@ initTheme();
 initSearchHub();
 initTimelineFilter();
 initJumpToYear();
+initSpotlight();
 
 onAuthChange(async (user)=>{
   currentUser = user;

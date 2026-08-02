@@ -17,7 +17,7 @@
 <div class="topbar">
   <div class="brand">
     <div class="brand-mark"></div>
-    <div><div class="brand-name">Life Story Locker</div><div class="brand-tag">A HUMAN UNDERSTANDING INFRASTRUCTURE</div></div>
+    <div><div class="brand-name">Life Story Locker</div><div class="brand-tag">THE LIVING MEMORY LABORATORY</div></div>
   </div>
   <div class="auth-area" id="authArea">
     <button class="btn magnetic theme-toggle" id="themeToggle" title="Toggle light/dark">🌙</button>
@@ -33,7 +33,7 @@
   <canvas id="dust"></canvas>
   <div class="hero-glow" id="heroGlow"></div>
   <div class="hero-content">
-    <span class="eyebrow">Chapter one — before the features, a question</span>
+    <span class="eyebrow">A place where memories are preserved like artifacts</span>
     <h1><span class="mask" id="h1a"><span>One day, someone will wonder</span></span><span class="mask" id="h1b"><span>who you <em class="accent" style="font-style:italic;color:var(--gold)">really</em> were.</span></span></h1>
     <p class="lede">Not the version that made it to the feed. The version that made the decisions, carried the doubts, and loved imperfectly. This is where that version gets kept — for the people who'll go looking.</p>
     <div class="hero-cta">
@@ -123,6 +123,7 @@
 
   <div class="search-toolbar">
     <div class="search-wrap">
+      <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
       <input type="text" id="searchInput" class="search-input" placeholder="Search titles, answers, tags…" autocomplete="off">
       <div class="search-suggestions" id="searchSuggestions"></div>
     </div>
@@ -168,7 +169,14 @@
   </div>
   <div class="const-wrap">
     <canvas id="constellation"></canvas>
-    <div class="const-empty" id="constEmpty">Your constellation is empty. File a memory in any drawer and it will appear here as a star.</div>
+    <div class="const-empty" id="constEmpty">
+      <div class="empty-state-rich">
+        <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="32" cy="14" r="2.4"/><circle cx="14" cy="32" r="2" fill="currentColor" stroke="none"/><circle cx="50" cy="30" r="1.6" fill="currentColor" stroke="none"/><circle cx="40" cy="48" r="2.2"/><circle cx="20" cy="46" r="1.8" fill="currentColor" stroke="none"/><path d="M32 14 L20 46 M32 14 L40 48 M14 32 L50 30" opacity="0.5"/></svg>
+        <div class="empty-title">Your constellation is empty</div>
+        <div class="empty-sub">File a memory in any drawer and it will appear here as a star.</div>
+        <button class="btn solid" onclick="document.getElementById('locker').scrollIntoView({behavior:'smooth'})">Go write one</button>
+      </div>
+    </div>
   </div>
 </section>
 
