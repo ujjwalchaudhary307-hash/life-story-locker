@@ -124,6 +124,7 @@ async function loadAllEntriesForOverview(){
   const publicSociety = await getPublicMemories('society');
   const mineIds = new Set(all.map(e=>e.id));
   publicSociety.forEach(e=>{ if(!mineIds.has(e.id)) all.push(e); });
+  allEntriesCache = all;
   return all;
 }
 
@@ -146,7 +147,7 @@ function entryCardHtml(e, opts = {}){
   const hl = opts.highlightQuery || '';
 
   if(locked){
-    return `<div class="entry-card locked">
+    return `<div class="entry-card locked" data-exhibit-id="${e.id}" data-exhibit-section="${e.section}" tabindex="0" role="button" aria-label="Open exhibit for ${escapeHtml(e.title)}">
       <div class="meta"><span class="title">${escapeHtml(e.title)}</span><span class="badge sealed">Sealed until ${e.unlockDate}</span></div>
       <div class="sealed-box">This one stays shut until ${e.unlockDate}.</div>
       ${canEditThis ? `<button class="del-btn" data-id="${e.id}" data-section="${e.section}">Delete entry</button>` : ''}
@@ -172,7 +173,7 @@ function entryCardHtml(e, opts = {}){
     actions.push(`<button class="del-btn" data-id="${e.id}" data-section="${e.section}">Delete entry</button>`);
   }
 
-  return `<div class="entry-card${opts.resultStyle?' result':''}">
+  return `<div class="entry-card${opts.resultStyle?' result':''}" data-exhibit-id="${e.id}" data-exhibit-section="${e.section}" tabindex="0" role="button" aria-label="Open exhibit for ${escapeHtml(e.title)}">
     <div class="meta"><span class="title">${e.favorite ? '★ ' : ''}${highlightText(e.title, hl)}</span><span class="stamp-meta">${fmtDate(e.createdAt)}</span></div>
     <div class="tag-row">${sourceChip}${draftBadge}${archivedBadge}<span class="tag-chip">${escapeHtml(e.lifeStage||'')}</span><span class="tag-chip">${escapeHtml(e.emotion||'')}</span><span class="tag-chip">${escapeHtml(e.audienceLabel||'Just me')}</span>${tagsHtml}</div>
     <div class="qa">${qaHtml}</div>
@@ -183,6 +184,16 @@ function entryCardHtml(e, opts = {}){
 }
 
 function wireEntryCardActions(container, { onChanged } = {}){
+  container.querySelectorAll('[data-exhibit-id]').forEach(card=>{
+    const openExhibit = (ev)=>{
+      if(ev.target.closest('button')) return;
+      const entryId = card.dataset.exhibitId;
+      const section = card.dataset.exhibitSection;
+      openMemoryExhibit(section, entryId);
+    };
+    card.addEventListener('click', openExhibit);
+    card.addEventListener('keydown', (ev)=>{ if(ev.key==='Enter' || ev.key===' '){ ev.preventDefault(); openExhibit(ev); } });
+  });
   container.querySelectorAll('[data-id]').forEach(b=>{
     b.addEventListener('click', async ()=>{
       if(!confirm('Delete this memory? This can\'t be undone.')) return;
@@ -1192,20 +1203,53 @@ async function refreshOverview(){
 // ---------------------------------------------------------------------------
 
 function initDust(){
+  if(window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
   const canvas = document.getElementById('dust'); const ctx = canvas.getContext('2d');
   function resize(){ canvas.width = canvas.clientWidth*devicePixelRatio; canvas.height = canvas.clientHeight*devicePixelRatio; ctx.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0); }
   resize(); window.addEventListener('resize', resize);
-  const particles = Array.from({length:60}, ()=>({ x:Math.random()*canvas.clientWidth, y:Math.random()*canvas.clientHeight, r:Math.random()*1.4+0.3, s:Math.random()*0.3+0.05, o:Math.random()*0.5+0.2 }));
+
+  // Fewer particles on small screens — same visual language, lighter draw cost.
+  const isSmall = window.innerWidth < 700;
+  const bgCount = isSmall ? 22 : 44;
+  const fgCount = isSmall ? 8 : 16;
+
+  // Background particles: smaller, slower, dimmer, drift mostly straight up.
+  const background = Array.from({length:bgCount}, ()=>({
+    x:Math.random()*canvas.clientWidth, y:Math.random()*canvas.clientHeight,
+    r:Math.random()*1.1+0.25, s:Math.random()*0.22+0.04, o:Math.random()*0.35+0.12,
+    tPhase:Math.random()*Math.PI*2, tSpeed:Math.random()*0.006+0.002, tAmp:Math.random()*6+2,
+  }));
+  // Foreground particles: bigger, faster, brighter, more turbulence — reads
+  // as "closer" to the viewer, giving the canvas real depth instead of one flat layer.
+  const foreground = Array.from({length:fgCount}, ()=>({
+    x:Math.random()*canvas.clientWidth, y:Math.random()*canvas.clientHeight,
+    r:Math.random()*1.9+1, s:Math.random()*0.5+0.18, o:Math.random()*0.4+0.35,
+    tPhase:Math.random()*Math.PI*2, tSpeed:Math.random()*0.012+0.004, tAmp:Math.random()*14+6,
+  }));
+
+  let t = 0;
+  function drawLayer(layer){
+    layer.forEach(p=>{
+      p.y -= p.s;
+      p.tPhase += p.tSpeed;
+      if(p.y < -6) p.y = canvas.clientHeight + 6;
+      const driftX = p.x + Math.sin(p.tPhase) * p.tAmp * 0.08; // gentle horizontal turbulence, never repetitive-looking
+      ctx.beginPath(); ctx.arc(driftX, p.y, p.r, 0, Math.PI*2);
+      ctx.fillStyle = `rgba(212,175,106,${p.o})`; ctx.fill();
+    });
+  }
   function draw(){
+    t += 1;
     ctx.clearRect(0,0,canvas.clientWidth,canvas.clientHeight);
-    particles.forEach(p=>{ p.y -= p.s; if(p.y < -5) p.y = canvas.clientHeight+5;
-      ctx.beginPath(); ctx.arc(p.x,p.y,p.r,0,Math.PI*2); ctx.fillStyle=`rgba(212,175,106,${p.o})`; ctx.fill(); });
+    drawLayer(background);
+    drawLayer(foreground);
     requestAnimationFrame(draw);
   }
   draw();
 }
 
 function initEmbers(){
+  if(window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
   const canvas = document.getElementById('embers'); const ctx = canvas.getContext('2d');
   function resize(){ canvas.width = canvas.clientWidth*devicePixelRatio; canvas.height = canvas.clientHeight*devicePixelRatio; ctx.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0); }
   resize(); window.addEventListener('resize', resize);
@@ -1217,6 +1261,51 @@ function initEmbers(){
     requestAnimationFrame(draw);
   }
   draw();
+}
+
+// Item 3 — mouse-reactive lighting. Desktop only (checked via hover+pointer
+// media query, matching the CSS fallback), respects reduced-motion, and only
+// ever touches `transform` via a CSS custom property — no per-frame layout
+// or paint work, no background recompute, GPU-composited throughout.
+function initCursorBloom(){
+  const bloom = document.querySelector('.cursor-bloom');
+  if(!bloom) return;
+  if(window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  if(!window.matchMedia('(hover: hover) and (pointer: fine)').matches) return;
+
+  const SCAN_SELECTOR = '.btn, .entry-card, .dash-card, .chart-card, .metaphor-card, .tl-card, .drawer-face, input, select, textarea';
+  let pending = false, lastX = window.innerWidth/2, lastY = window.innerHeight/2;
+  let idleTimer = null;
+
+  function apply(){
+    bloom.style.setProperty('--bloom-x', `${lastX}px`);
+    bloom.style.setProperty('--bloom-y', `${lastY}px`);
+    pending = false;
+  }
+  function armIdle(){
+    bloom.classList.remove('idle');
+    clearTimeout(idleTimer);
+    // Item 9 — idle animation: after 4.5s with no cursor movement, hand the
+    // bloom over to its own slow autonomous drift instead of sitting frozen.
+    idleTimer = setTimeout(()=> bloom.classList.add('idle'), 4500);
+  }
+
+  window.addEventListener('mousemove', (e)=>{
+    lastX = e.clientX; lastY = e.clientY;
+    bloom.classList.add('active');
+    armIdle();
+    if(!pending){ pending = true; requestAnimationFrame(apply); }
+  }, { passive:true });
+
+  // Cursor scanner — localized illumination on interactive elements.
+  document.addEventListener('mouseover', (e)=>{
+    if(e.target.closest(SCAN_SELECTOR)) bloom.classList.add('scanning');
+  }, { passive:true });
+  document.addEventListener('mouseout', (e)=>{
+    if(e.target.closest(SCAN_SELECTOR) && !e.relatedTarget?.closest?.(SCAN_SELECTOR)) bloom.classList.remove('scanning');
+  }, { passive:true });
+
+  armIdle();
 }
 
 // ---------------------------------------------------------------------------
@@ -1246,6 +1335,102 @@ function initScrollStory(){
   }});
 }
 
+function openMemoryExhibit(section, memoryId){
+  const lookupEntries = (window.__exhibitEntries && window.__exhibitEntries.length) ? window.__exhibitEntries : allEntriesCache;
+  const entries = lookupEntries.filter(e => e.section === section && e.id === memoryId);
+  const entry = entries[0];
+  if(!entry) {
+    const overlay = document.getElementById('exhibitOverlay');
+    if(overlay){
+      document.getElementById('exhibitTitle').textContent = 'Memory exhibit';
+      document.getElementById('exhibitSummary').textContent = 'The selected memory could not be found yet, but the exhibit view is ready.';
+      document.getElementById('exhibitSectionLabel').textContent = 'Archive • exhibit';
+      document.getElementById('exhibitMeta').innerHTML = '<span class="tag-chip">Preview</span>';
+      document.getElementById('exhibitMetadata').innerHTML = '<div><strong>Drawer:</strong> Archive</div>';
+      document.getElementById('exhibitStory').innerHTML = '<p>This preview confirms the exhibit shell is active.</p>';
+      document.getElementById('exhibitAnchor').innerHTML = '';
+      document.getElementById('exhibitContradiction').innerHTML = '';
+      document.getElementById('exhibitAnchorBlock').style.display = 'none';
+      document.getElementById('exhibitContradictionBlock').style.display = 'none';
+      overlay.classList.add('open');
+      overlay.setAttribute('aria-hidden', 'false');
+      document.body.style.overflow = 'hidden';
+    }
+    return;
+  }
+
+  const s = SECTIONS[section] || {};
+  const overlay = document.getElementById('exhibitOverlay');
+  if(!overlay) return;
+
+  document.getElementById('exhibitTitle').textContent = entry.title || 'Untitled memory';
+  document.getElementById('exhibitSummary').textContent = entry.contradiction ? `A carefully preserved remembrance from ${s.label || section}.` : 'A carefully preserved remembrance awaits.';
+  document.getElementById('exhibitSectionLabel').textContent = `${s.label || section} • exhibit`;
+  document.getElementById('exhibitBadge').textContent = entry.favorite ? 'Favorite artifact' : 'Museum exhibit';
+
+  const metaWrap = document.getElementById('exhibitMeta');
+  const metaItems = [
+    `<span class="tag-chip">${escapeHtml(s.label || section)}</span>`,
+    `<span class="tag-chip">${escapeHtml(entry.lifeStage || 'Unstaged')}</span>`,
+    `<span class="tag-chip">${escapeHtml(entry.emotion || 'Unlabeled')}</span>`,
+    `<span class="tag-chip">${escapeHtml(entry.audienceLabel || 'Private')}</span>`
+  ];
+  if(entry.tags && entry.tags.length) metaItems.push(`<span class="tag-chip">#${escapeHtml(entry.tags[0])}</span>`);
+  metaWrap.innerHTML = metaItems.join('');
+
+  const metadataWrap = document.getElementById('exhibitMetadata');
+  metadataWrap.innerHTML = `
+    <div><strong>Filed:</strong> ${fmtDate(entry.createdAt)}</div>
+    <div><strong>Drawer:</strong> ${escapeHtml(s.label || section)}</div>
+    <div><strong>Status:</strong> ${escapeHtml(entry.status || 'published')}</div>
+    <div><strong>Favorite:</strong> ${entry.favorite ? 'Yes' : 'No'}</div>
+  `;
+
+  const storyWrap = document.getElementById('exhibitStory');
+  const storyBlocks = Object.entries(entry.answers || {}).filter(([,v])=>v && v.trim()).map(([pk,v])=>{
+    const pd = (s.prompts||[]).find(p=>p.key===pk);
+    return `<div class="qa"><div class="q">${pd?pd.q:pk}</div><div class="a">${escapeHtml(v)}</div></div>`;
+  });
+  storyWrap.innerHTML = storyBlocks.length ? storyBlocks.join('') : `<p>There is no story text yet for this memory.</p>`;
+
+  const anchorWrap = document.getElementById('exhibitAnchor');
+  const contradictionWrap = document.getElementById('exhibitContradiction');
+  document.getElementById('exhibitAnchorBlock').style.display = entry.anchor ? 'block' : 'none';
+  document.getElementById('exhibitContradictionBlock').style.display = entry.contradiction ? 'block' : 'none';
+  anchorWrap.innerHTML = entry.anchor ? `<p>${escapeHtml(entry.anchor)}</p>` : '';
+  contradictionWrap.innerHTML = entry.contradiction ? `<p>${escapeHtml(entry.contradiction)}</p>` : '';
+
+  overlay.classList.add('open');
+  overlay.setAttribute('aria-hidden', 'false');
+  document.body.style.overflow = 'hidden';
+}
+
+function closeMemoryExhibit(){
+  const overlay = document.getElementById('exhibitOverlay');
+  if(!overlay) return;
+  overlay.classList.remove('open');
+  overlay.setAttribute('aria-hidden', 'true');
+  document.body.style.overflow = '';
+  return false;
+}
+
+function initMemoryExhibit(){
+  const overlay = document.getElementById('exhibitOverlay');
+  if(!overlay) return;
+  const closeBtn = document.getElementById('exhibitClose');
+  const backBtn = document.getElementById('exhibitBackBtn');
+  if(closeBtn){
+    closeBtn.addEventListener('click', (e)=>{ e.stopPropagation(); closeMemoryExhibit(); });
+    closeBtn.onclick = (e)=>{ e.stopPropagation(); closeMemoryExhibit(); };
+  }
+  if(backBtn){
+    backBtn.addEventListener('click', (e)=>{ e.stopPropagation(); closeMemoryExhibit(); });
+    backBtn.onclick = (e)=>{ e.stopPropagation(); closeMemoryExhibit(); };
+  }
+  overlay.addEventListener('click', (e)=>{ if(e.target.id === 'exhibitOverlay') closeMemoryExhibit(); });
+  document.addEventListener('keydown', (e)=>{ if(e.key === 'Escape' && overlay.classList.contains('open')) closeMemoryExhibit(); });
+}
+
 function initMagnetic(){
   document.querySelectorAll('.magnetic').forEach(btn=>{
     if(btn.dataset.magneticBound) return;
@@ -1264,7 +1449,7 @@ function initMagnetic(){
 // timeline, search results), so no per-card wiring is needed anywhere else.
 function initSpotlight(){
   if(window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-  const SPOTLIGHT_SELECTOR = '.entry-card, .dash-card, .chart-card, .metaphor-card, .tl-card';
+  const SPOTLIGHT_SELECTOR = '.entry-card, .dash-card, .chart-card, .metaphor-card, .tl-card, .drawer-face';
   document.addEventListener('mousemove', (e)=>{
     const card = e.target.closest(SPOTLIGHT_SELECTOR);
     if(!card) return;
@@ -1447,11 +1632,24 @@ initMagnetic();
 initHeroGlow();
 initViewButtons();
 initAuthUI();
+initMemoryExhibit();
 initTheme();
 initSearchHub();
 initTimelineFilter();
 initJumpToYear();
 initSpotlight();
+initCursorBloom();
+
+window.openMemoryExhibit = openMemoryExhibit;
+window.closeMemoryExhibit = closeMemoryExhibit;
+
+// Expose the overlay for lightweight verification and future integrations.
+document.addEventListener('DOMContentLoaded', ()=>{
+  const overlay = document.getElementById('exhibitOverlay');
+  if(overlay){
+    overlay.dataset.ready = 'true';
+  }
+});
 
 onAuthChange(async (user)=>{
   currentUser = user;

@@ -12,6 +12,7 @@
 </head>
 <body>
 <div class="atmosphere" id="atmosphere"></div>
+<div class="cursor-bloom" aria-hidden="true"></div>
 <div class="page">
 
 <div class="topbar">
@@ -29,13 +30,13 @@
 </div>
 
 <!-- CHAPTER 1: HERO -->
-<section class="hero" id="heroSec" data-atmos="#241a3d">
+<section class="hero" id="heroSec" data-atmos="#3d2a0c">
   <canvas id="dust"></canvas>
   <div class="hero-glow" id="heroGlow"></div>
   <div class="hero-content">
-    <span class="eyebrow">A place where memories are preserved like artifacts</span>
+    <span class="eyebrow">A private museum for the life that made it through</span>
     <h1><span class="mask" id="h1a"><span>One day, someone will wonder</span></span><span class="mask" id="h1b"><span>who you <em class="accent" style="font-style:italic;color:var(--gold)">really</em> were.</span></span></h1>
-    <p class="lede">Not the version that made it to the feed. The version that made the decisions, carried the doubts, and loved imperfectly. This is where that version gets kept — for the people who'll go looking.</p>
+    <p class="lede">Keep the memories that deserve to survive the feed — the lessons, the love, the contradictions, the unfinished parts. This is where they become a lasting archive.</p>
     <div class="hero-cta">
       <button class="btn solid magnetic" onclick="document.getElementById('locker').scrollIntoView({behavior:'smooth'})">Begin your archive</button>
       <button class="btn magnetic" onclick="document.getElementById('philosophy').scrollIntoView({behavior:'smooth'})">Why this exists</button>
@@ -45,7 +46,7 @@
 </section>
 
 <!-- CHAPTER 2: PROBLEM / EMPATHY -->
-<section class="problem" id="problemSec" data-atmos="#1a2233">
+<section class="problem" id="problemSec" data-atmos="#121b2c">
   <div class="problem-head">
     <div class="chapter-tag">Chapter two — the diagnosis</div>
     <h2 class="mask" style="font-size:clamp(1.6rem,3vw,2.3rem);"><span>Five ways honesty quietly disappears</span></h2>
@@ -61,7 +62,7 @@
 </section>
 
 <!-- CHAPTER 3: DRAWERS -->
-<section class="locker" id="locker" data-atmos="#2e2210">
+<section class="locker" id="locker" data-atmos="#3a2712">
   <div class="chapter-tag">Chapter three — the archive</div>
   <div class="locker-head">
     <div>
@@ -77,7 +78,7 @@
 </section>
 
 <!-- CHAPTER 4: LIFE IN NUMBERS -->
-<section class="numbers" id="numbersSec" data-atmos="#332008">
+<section class="numbers" id="numbersSec" data-atmos="#33240f">
   <div class="chapter-tag" style="justify-content:center;">Chapter four — the archive, in numbers</div>
   <h2 class="mask" style="font-size:clamp(1.5rem,3vw,2rem);"><span>A life, quantified — briefly</span></h2>
   <div class="numbers-grid" id="numbersGrid">
@@ -91,7 +92,7 @@
 </section>
 
 <!-- CHAPTER: DASHBOARD -->
-<section class="dashboard-sec" id="dashboardSec" data-atmos="#0f2233">
+<section class="dashboard-sec" id="dashboardSec" data-atmos="#0a3038">
   <div class="chapter-tag">Dashboard</div>
   <h2 class="mask" style="font-size:clamp(1.6rem,3vw,2.2rem);"><span>Everything, at a glance</span></h2>
   <p style="color:var(--muted); margin-top:10px; max-width:56ch;">A working view of the archive as it stands right now.</p>
@@ -101,7 +102,7 @@
 </section>
 
 <!-- CHAPTER 5: CORRIDOR / TIMELINE -->
-<section class="corridor" id="corridorSec" data-atmos="#131b33">
+<section class="corridor" id="corridorSec" data-atmos="#161c3a">
   <div class="chapter-tag">Chapter five — the corridor</div>
   <h2 class="mask" style="font-size:clamp(1.6rem,3vw,2.2rem);"><span>Walk through it, in order</span></h2>
   <p style="color:var(--muted); margin-top:12px; max-width:56ch;">Every memory from every drawer, laid end to end — chronologically, oldest first.</p>
@@ -116,7 +117,7 @@
 </section>
 
 <!-- CHAPTER: SEARCH, FILTER, SORT, FAVORITES -->
-<section class="search-hub" id="searchHubSec" data-atmos="#16241c">
+<section class="search-hub" id="searchHubSec" data-atmos="#123321">
   <div class="chapter-tag">Search the archive</div>
   <h2 class="mask" style="font-size:clamp(1.5rem,3vw,2.1rem);"><span>Find anything you've written</span></h2>
   <p style="color:var(--muted); margin-top:10px; max-width:56ch;">Search, filter, and sort across every drawer you can see — favorites included.</p>
@@ -143,7 +144,7 @@
 </section>
 
 <!-- CHAPTER: MEMORY ANALYTICS -->
-<section class="analytics-sec" id="analyticsSec" data-atmos="#20172c">
+<section class="analytics-sec" id="analyticsSec" data-atmos="#0f3a28">
   <div class="chapter-tag">Memory analytics</div>
   <h2 class="mask" style="font-size:clamp(1.5rem,3vw,2.1rem);"><span>Patterns, not just entries</span></h2>
   <p style="color:var(--muted); margin-top:10px; max-width:56ch;">A quiet read on what you've been feeling, and when you've been writing.</p>
@@ -181,7 +182,7 @@
 </section>
 
 <!-- CHAPTER 7: PHILOSOPHY -->
-<section class="philosophy" id="philosophy" data-atmos="#2a1a12">
+<section class="philosophy" id="philosophy" data-atmos="#3d260f">
   <canvas id="embers"></canvas>
   <blockquote class="reveal">"If we knew each other's full story, we'd probably judge a lot less — and understand a lot more."</blockquote>
   <div class="attrib reveal">— Founder philosophy</div>
@@ -253,6 +254,49 @@
       <div class="auth-error" id="profileError"></div>
       <button type="submit" class="btn solid" style="width:100%; margin-top:14px;">Save changes</button>
     </form>
+  </div>
+</div>
+
+<!-- MEMORY EXHIBIT VIEW -->
+<div class="exhibit-overlay" id="exhibitOverlay" aria-hidden="true">
+  <div class="exhibit-shell" role="dialog" aria-modal="true" aria-labelledby="exhibitTitle">
+    <button class="exhibit-close" id="exhibitClose" aria-label="Close exhibit">×</button>
+    <div class="exhibit-backbar">
+      <button class="btn magnetic" id="exhibitBackBtn">← Return to the archive</button>
+      <div class="exhibit-badge" id="exhibitBadge">Museum exhibit</div>
+    </div>
+    <div class="exhibit-grid">
+      <section class="exhibit-hero">
+        <p class="exhibit-kicker" id="exhibitSectionLabel">Collected memory</p>
+        <h3 id="exhibitTitle">Untitled memory</h3>
+        <p class="exhibit-summary" id="exhibitSummary">A carefully preserved remembrance awaits.</p>
+        <div class="exhibit-meta" id="exhibitMeta"></div>
+      </section>
+      <aside class="exhibit-sidebar">
+        <div class="exhibit-panel">
+          <h4>Artifact metadata</h4>
+          <div id="exhibitMetadata"></div>
+        </div>
+        <div class="exhibit-panel">
+          <h4>Curator notes</h4>
+          <p id="exhibitNotes">This memory is being presented as a museum artifact — quiet, ordered, and meant to endure.</p>
+        </div>
+      </aside>
+    </div>
+    <section class="exhibit-content">
+      <div class="exhibit-content-block">
+        <h4>Story</h4>
+        <div id="exhibitStory"></div>
+      </div>
+      <div class="exhibit-content-block" id="exhibitAnchorBlock">
+        <h4>Memory anchor</h4>
+        <div id="exhibitAnchor"></div>
+      </div>
+      <div class="exhibit-content-block" id="exhibitContradictionBlock">
+        <h4>Counterpoint</h4>
+        <div id="exhibitContradiction"></div>
+      </div>
+    </section>
   </div>
 </div>
 
