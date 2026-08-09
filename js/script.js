@@ -145,9 +145,16 @@ function entryCardHtml(e, opts = {}){
   const canEditThis = currentUser && e.userId === currentUser.uid;
   const showSourceTag = !!opts.showSource;
   const hl = opts.highlightQuery || '';
+  const forceFeatured = !!opts.forceFeatured;
+  const featured = forceFeatured || !!e.favorite;
+  const accession = e.id ? `ACC-${e.id.slice(0,5).toUpperCase()}` : 'ACC-00000';
+  const artifactDate = fmtDate(e.createdAt);
+  const artifactSection = s.label || e.section;
+  const featuredClass = featured ? ' featured' : '';
 
   if(locked){
-    return `<div class="entry-card locked" data-exhibit-id="${e.id}" data-exhibit-section="${e.section}" tabindex="0" role="button" aria-label="Open exhibit for ${escapeHtml(e.title)}">
+    return `<div class="entry-card locked${featuredClass}" data-exhibit-id="${e.id}" data-exhibit-section="${e.section}" tabindex="0" role="button" aria-label="Open exhibit for ${escapeHtml(e.title)}">
+      <div class="artifact-strip"><span class="artifact-label">Accession ${accession}</span><span class="artifact-meta">${artifactDate} · ${escapeHtml(artifactSection)}</span></div>
       <div class="meta"><span class="title">${escapeHtml(e.title)}</span><span class="badge sealed">Sealed until ${e.unlockDate}</span></div>
       <div class="sealed-box">This one stays shut until ${e.unlockDate}.</div>
       ${canEditThis ? `<button class="del-btn" data-id="${e.id}" data-section="${e.section}">Delete entry</button>` : ''}
@@ -173,7 +180,8 @@ function entryCardHtml(e, opts = {}){
     actions.push(`<button class="del-btn" data-id="${e.id}" data-section="${e.section}">Delete entry</button>`);
   }
 
-  return `<div class="entry-card${opts.resultStyle?' result':''}" data-exhibit-id="${e.id}" data-exhibit-section="${e.section}" tabindex="0" role="button" aria-label="Open exhibit for ${escapeHtml(e.title)}">
+  return `<div class="entry-card${featuredClass}${opts.resultStyle?' result':''}" data-exhibit-id="${e.id}" data-exhibit-section="${e.section}" tabindex="0" role="button" aria-label="Open exhibit for ${escapeHtml(e.title)}">
+    <div class="artifact-strip"><span class="artifact-label">Accession ${accession}</span><span class="artifact-meta">${artifactDate} · ${escapeHtml(artifactSection)}</span></div>
     <div class="meta"><span class="title">${e.favorite ? '★ ' : ''}${highlightText(e.title, hl)}</span><span class="stamp-meta">${fmtDate(e.createdAt)}</span></div>
     <div class="tag-row">${sourceChip}${draftBadge}${archivedBadge}<span class="tag-chip">${escapeHtml(e.lifeStage||'')}</span><span class="tag-chip">${escapeHtml(e.emotion||'')}</span><span class="tag-chip">${escapeHtml(e.audienceLabel||'Just me')}</span>${tagsHtml}</div>
     <div class="qa">${qaHtml}</div>
@@ -1321,6 +1329,9 @@ function initScrollStory(){
       onEnterBack:()=> atmos.style.setProperty('background', `radial-gradient(900px 700px at 50% 20%, ${sec.dataset.atmos}, transparent 70%)`)
     });
   });
+  document.querySelectorAll('section').forEach(sec=>{
+    ScrollTrigger.create({ trigger:sec, start:'top 78%', onEnter:()=> sec.classList.add('in-view'), once:true });
+  });
   document.querySelectorAll('.reveal').forEach(el=>{
     ScrollTrigger.create({ trigger:el, start:'top 85%', onEnter:()=>el.classList.add('in'), onEnterBack:()=>el.classList.add('in') });
   });
@@ -1615,6 +1626,21 @@ function initHeroGlow(){
     heroGlow.style.setProperty('--my', ((ev.clientY-r.top)/r.height*100)+'%'); });
 }
 
+function initHeroScrollParallax(){
+  const hero = document.getElementById('heroSec'); if(!hero) return;
+  let lastY = window.scrollY;
+  const update = ()=>{
+    const rect = hero.getBoundingClientRect();
+    if(rect.bottom > 0){
+      const offset = Math.max(Math.min((window.scrollY - hero.offsetTop) * 0.14, 24), -24);
+      hero.style.setProperty('--hero-offset', `${offset}px`);
+    }
+    lastY = window.scrollY;
+  };
+  window.addEventListener('scroll', ()=> requestAnimationFrame(update), { passive:true });
+  update();
+}
+
 function initViewButtons(){
   document.getElementById('viewDrawers').addEventListener('click', ()=> document.getElementById('locker').scrollIntoView({behavior:'smooth'}));
   document.getElementById('viewTimelineBtn').addEventListener('click', ()=> document.getElementById('corridorSec').scrollIntoView({behavior:'smooth'}));
@@ -1630,6 +1656,7 @@ initEmbers();
 initConstellationCanvas();
 initMagnetic();
 initHeroGlow();
+initHeroScrollParallax();
 initViewButtons();
 initAuthUI();
 initMemoryExhibit();
