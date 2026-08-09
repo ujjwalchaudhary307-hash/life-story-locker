@@ -18,28 +18,69 @@
 <div class="topbar">
   <div class="brand">
     <div class="brand-mark"></div>
-    <div><div class="brand-name">Life Story Locker</div><div class="brand-tag">THE LIVING MEMORY LABORATORY</div></div>
+    <div><div class="brand-name">Life Story Locker</div><div class="brand-tag">PREMIUM DIGITAL MEMORY MUSEUM</div></div>
   </div>
-  <div class="auth-area" id="authArea">
-    <button class="btn magnetic theme-toggle" id="themeToggle" title="Toggle light/dark">🌙</button>
-    <button class="btn magnetic" id="loginBtn">Log in</button>
-    <button class="btn magnetic" id="signupBtn">Sign up</button>
+  <nav class="site-nav" aria-label="Primary navigation">
+    <a href="#locker">Archive</a>
+    <a href="#corridorSec">Corridor</a>
+    <a href="#searchHubSec">Search</a>
+    <a href="#analyticsSec">Signals</a>
+  </nav>
+  <div class="topbar-actions">
+    <div class="auth-area" id="authArea">
+      <button class="btn magnetic theme-toggle" id="themeToggle" title="Toggle light/dark">🌙</button>
+      <button class="btn magnetic" id="loginBtn">Log in</button>
+      <button class="btn magnetic" id="signupBtn">Sign up</button>
+    </div>
+    <button class="btn magnetic" id="favoritesNavBtn">★ Favorites</button>
+    <button class="btn solid magnetic" onclick="document.getElementById('locker').scrollIntoView({behavior:'smooth'})">Enter archive</button>
   </div>
-  <button class="btn magnetic" id="favoritesNavBtn">★ Favorites</button>
-  <button class="btn solid magnetic" onclick="document.getElementById('locker').scrollIntoView({behavior:'smooth'})">Open the locker</button>
 </div>
 
 <!-- CHAPTER 1: HERO -->
 <section class="hero" id="heroSec" data-atmos="#3d2a0c">
   <canvas id="dust"></canvas>
   <div class="hero-glow" id="heroGlow"></div>
-  <div class="hero-content">
-    <span class="eyebrow">A private museum for the life that made it through</span>
-    <h1><span class="mask" id="h1a"><span>One day, someone will wonder</span></span><span class="mask" id="h1b"><span>who you <em class="accent" style="font-style:italic;color:var(--gold)">really</em> were.</span></span></h1>
-    <p class="lede">Keep the memories that deserve to survive the feed — the lessons, the love, the contradictions, the unfinished parts. This is where they become a lasting archive.</p>
-    <div class="hero-cta">
-      <button class="btn solid magnetic" onclick="document.getElementById('locker').scrollIntoView({behavior:'smooth'})">Begin your archive</button>
-      <button class="btn magnetic" onclick="document.getElementById('philosophy').scrollIntoView({behavior:'smooth'})">Why this exists</button>
+  <div class="hero-content hero-grid">
+    <div class="hero-copy">
+      <span class="eyebrow">Premium digital memory museum</span>
+      <h1><span class="mask" id="h1a"><span>One day, someone will wonder</span></span><span class="mask" id="h1b"><span>who you <em class="accent" style="font-style:italic;color:var(--gold)">really</em> were.</span></span></h1>
+      <p class="lede">Keep the memories that deserve to survive the feed — the lessons, the love, the contradictions, the unfinished parts. This is where they become a lasting archive.</p>
+      <div class="hero-deck">
+        <span class="hero-tag">Editorial-grade curation</span>
+        <span class="hero-tag">Private access only</span>
+        <span class="hero-tag">Preserved like art</span>
+      </div>
+      <div class="hero-strap">Curated with museum-grade restraint, not algorithmic noise.</div>
+      <div class="hero-cta">
+        <button class="btn solid magnetic" onclick="document.getElementById('locker').scrollIntoView({behavior:'smooth'})">Enter archive</button>
+        <button class="btn magnetic" onclick="document.getElementById('philosophy').scrollIntoView({behavior:'smooth'})">Why this exists</button>
+      </div>
+    </div>
+    <div class="hero-visual">
+      <div class="artifact-window">
+        <div class="artifact-label">Exhibit preview</div>
+        <div class="artifact-shell">
+          <article class="artifact-card artifact-card-large">
+            <div class="artifact-card-copy">A quiet archive of memory artifacts and lived truth — curated with restraint, not noise.</div>
+            <div class="artifact-meta">
+              <span>5 drawers</span>
+              <span>Private by default</span>
+            </div>
+          </article>
+          <div class="hero-preview-grid">
+            <div class="artifact-tile">
+              <div class="tile-label">Gallery case</div>
+              <p>Reserved entries are displayed as a thoughtful collection, not a feed.</p>
+            </div>
+            <div class="artifact-tile">
+              <div class="tile-label">Archival spine</div>
+              <p>A stable, navigable structure makes every memory easy to return to.</p>
+            </div>
+          </div>
+          <div class="artifact-footnote">An archival room for your life, within a digital museum that feels grounded and intentional.</div>
+        </div>
+      </div>
     </div>
   </div>
   <div class="scroll-cue"><span></span></div>
@@ -258,28 +299,51 @@
 </div>
 
 <!-- MEMORY EXHIBIT VIEW -->
-<div class="exhibit-overlay" id="exhibitOverlay" aria-hidden="true">
-  <div class="exhibit-shell" role="dialog" aria-modal="true" aria-labelledby="exhibitTitle">
+<div class="exhibit-overlay" id="exhibitOverlay" aria-hidden="true" tabindex="-1">
+  <div class="exhibit-shell" role="dialog" aria-modal="true" aria-labelledby="exhibitTitle" aria-describedby="exhibitSummary">
     <button class="exhibit-close" id="exhibitClose" aria-label="Close exhibit">×</button>
     <div class="exhibit-backbar">
       <button class="btn magnetic" id="exhibitBackBtn">← Return to the archive</button>
       <div class="exhibit-badge" id="exhibitBadge">Museum exhibit</div>
     </div>
+    <div class="exhibit-nav" role="navigation" aria-label="Exhibit navigation">
+      <button class="btn magnetic exhibit-nav-btn" id="exhibitPrevBtn" type="button">← Previous</button>
+      <button class="btn magnetic exhibit-nav-btn" id="exhibitNextBtn" type="button">Next →</button>
+    </div>
     <div class="exhibit-grid">
       <section class="exhibit-hero">
-        <p class="exhibit-kicker" id="exhibitSectionLabel">Collected memory</p>
-        <h3 id="exhibitTitle">Untitled memory</h3>
-        <p class="exhibit-summary" id="exhibitSummary">A carefully preserved remembrance awaits.</p>
-        <div class="exhibit-meta" id="exhibitMeta"></div>
+        <div class="exhibit-hero-copy">
+          <p class="exhibit-kicker" id="exhibitSectionLabel">Collected memory</p>
+          <h3 id="exhibitTitle">Untitled memory</h3>
+          <p class="exhibit-summary" id="exhibitSummary">A carefully preserved remembrance awaits.</p>
+          <div class="exhibit-meta" id="exhibitMeta"></div>
+        </div>
+        <div class="exhibit-frame" id="exhibitFrame" tabindex="0" aria-label="Memory artifact">
+          <div class="exhibit-spotlight"></div>
+          <div class="exhibit-artifact">
+            <div class="artifact-head">
+              <span class="artifact-tag" id="exhibitArtifactTag">Artifact</span>
+              <span class="artifact-badge" id="exhibitArtifactBadge">Featured</span>
+            </div>
+            <div class="artifact-title" id="exhibitArtifactTitle">Untitled memory</div>
+            <div class="artifact-excerpt" id="exhibitArtifactExcerpt">A distilled memory excerpt appears here to suggest the tone of the exhibit.</div>
+          </div>
+        </div>
+        <div class="exhibit-caption" id="exhibitCaption"></div>
+        <div class="exhibit-timeline">
+          <span class="timeline-label">Filed</span>
+          <span class="timeline-date" id="exhibitDate"></span>
+          <span class="timeline-location" id="exhibitLocation"></span>
+        </div>
       </section>
       <aside class="exhibit-sidebar">
-        <div class="exhibit-panel">
-          <h4>Artifact metadata</h4>
+        <div class="exhibit-panel exhibit-panel-quiet">
+          <h4>Artifact details</h4>
           <div id="exhibitMetadata"></div>
         </div>
-        <div class="exhibit-panel">
+        <div class="exhibit-panel exhibit-panel-quiet">
           <h4>Curator notes</h4>
-          <p id="exhibitNotes">This memory is being presented as a museum artifact — quiet, ordered, and meant to endure.</p>
+          <p id="exhibitCaptionDetail">This memory is presented as a private museum piece — quietly contextualized, never exposed.</p>
         </div>
       </aside>
     </div>

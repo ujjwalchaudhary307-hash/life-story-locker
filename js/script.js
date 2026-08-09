@@ -58,6 +58,9 @@ const order = ['personal','family','relationship','society','legacy'];
 let openDrawer = 'personal';
 let currentUser = null;
 let editingId = {};
+let exhibitEntries = [];
+let exhibitIndex = -1;
+let exhibitLastFocused = null;
 
 // Per-drawer pagination state: { [section]: { lastDoc, hasMore, loaded:[], usingFallback:bool } }
 let drawerPageState = {};
@@ -197,7 +200,7 @@ function wireEntryCardActions(container, { onChanged } = {}){
       if(ev.target.closest('button')) return;
       const entryId = card.dataset.exhibitId;
       const section = card.dataset.exhibitSection;
-      openMemoryExhibit(section, entryId);
+      openMemoryExhibit(section, entryId, card);
     };
     card.addEventListener('click', openExhibit);
     card.addEventListener('keydown', (ev)=>{ if(ev.key==='Enter' || ev.key===' '){ ev.preventDefault(); openExhibit(ev); } });
@@ -1346,56 +1349,80 @@ function initScrollStory(){
   }});
 }
 
-function openMemoryExhibit(section, memoryId){
+function getSectionExhibitEntries(section){
   const lookupEntries = (window.__exhibitEntries && window.__exhibitEntries.length) ? window.__exhibitEntries : allEntriesCache;
-  const entries = lookupEntries.filter(e => e.section === section && e.id === memoryId);
-  const entry = entries[0];
-  if(!entry) {
-    const overlay = document.getElementById('exhibitOverlay');
-    if(overlay){
-      document.getElementById('exhibitTitle').textContent = 'Memory exhibit';
-      document.getElementById('exhibitSummary').textContent = 'The selected memory could not be found yet, but the exhibit view is ready.';
-      document.getElementById('exhibitSectionLabel').textContent = 'Archive • exhibit';
-      document.getElementById('exhibitMeta').innerHTML = '<span class="tag-chip">Preview</span>';
-      document.getElementById('exhibitMetadata').innerHTML = '<div><strong>Drawer:</strong> Archive</div>';
-      document.getElementById('exhibitStory').innerHTML = '<p>This preview confirms the exhibit shell is active.</p>';
-      document.getElementById('exhibitAnchor').innerHTML = '';
-      document.getElementById('exhibitContradiction').innerHTML = '';
-      document.getElementById('exhibitAnchorBlock').style.display = 'none';
-      document.getElementById('exhibitContradictionBlock').style.display = 'none';
-      overlay.classList.add('open');
-      overlay.setAttribute('aria-hidden', 'false');
-      document.body.style.overflow = 'hidden';
-    }
-    return;
-  }
-
+  return lookupEntries
+    .filter(e => e.section === section)
+    .sort((a,b)=> tsValue(a.createdAt) - tsValue(b.createdAt));
+}
+function updateExhibitNavControls(){
+  const prevBtn = document.getElementById('exhibitPrevBtn');
+  const nextBtn = document.getElementById('exhibitNextBtn');
+  if(!prevBtn || !nextBtn) return;
+  const hasPrev = exhibitIndex > 0;
+  const hasNext = exhibitIndex >= 0 && exhibitIndex < exhibitEntries.length - 1;
+  prevBtn.disabled = !hasPrev;
+  nextBtn.disabled = !hasNext;
+  prevBtn.setAttribute('aria-disabled', String(!hasPrev));
+  nextBtn.setAttribute('aria-disabled', String(!hasNext));
+}
+function formatExhibitPreview(entry, section){
+  document.getElementById('exhibitTitle').textContent = 'Memory exhibit';
+  document.getElementById('exhibitSummary').textContent = 'The selected memory could not be found yet, but the exhibit view is ready.';
+  document.getElementById('exhibitSectionLabel').textContent = 'Archive • exhibit';
+  document.getElementById('exhibitBadge').textContent = 'Museum exhibit';
+  document.getElementById('exhibitMeta').innerHTML = '<span class="tag-chip">Preview</span>';
+  document.getElementById('exhibitMetadata').innerHTML = `<div><strong>Drawer:</strong> ${escapeHtml(section || 'Archive')}</div>`;
+  document.getElementById('exhibitArtifactTag').textContent = 'Artifact';
+  document.getElementById('exhibitArtifactBadge').textContent = 'Preview';
+  document.getElementById('exhibitArtifactTitle').textContent = 'Preview memory';
+  document.getElementById('exhibitArtifactExcerpt').textContent = 'The exhibit frame is mounted, but the selected artifact is missing from the archive.';
+  document.getElementById('exhibitCaption').textContent = 'This preview confirms the exhibit shell is active and ready for real memory artifacts.';
+  document.getElementById('exhibitDate').textContent = '';
+  document.getElementById('exhibitLocation').textContent = '';
+  document.getElementById('exhibitStory').innerHTML = '<p>This preview confirms the exhibit shell is active.</p>';
+  document.getElementById('exhibitAnchorBlock').style.display = 'none';
+  document.getElementById('exhibitContradictionBlock').style.display = 'none';
+}
+function renderMemoryArtifact(entry, section){
   const s = SECTIONS[section] || {};
-  const overlay = document.getElementById('exhibitOverlay');
-  if(!overlay) return;
-
   document.getElementById('exhibitTitle').textContent = entry.title || 'Untitled memory';
-  document.getElementById('exhibitSummary').textContent = entry.contradiction ? `A carefully preserved remembrance from ${s.label || section}.` : 'A carefully preserved remembrance awaits.';
+  document.getElementById('exhibitSummary').textContent = entry.contradiction
+    ? `A carefully preserved remembrance from ${s.label || section}.`
+    : 'A carefully preserved remembrance awaits.';
   document.getElementById('exhibitSectionLabel').textContent = `${s.label || section} • exhibit`;
-  document.getElementById('exhibitBadge').textContent = entry.favorite ? 'Favorite artifact' : 'Museum exhibit';
+  document.getElementById('exhibitBadge').textContent = entry.favorite ? 'Favorite artifact' : (entry.section === 'society' ? 'Public artifact' : 'Museum exhibit');
 
   const metaWrap = document.getElementById('exhibitMeta');
   const metaItems = [
     `<span class="tag-chip">${escapeHtml(s.label || section)}</span>`,
     `<span class="tag-chip">${escapeHtml(entry.lifeStage || 'Unstaged')}</span>`,
     `<span class="tag-chip">${escapeHtml(entry.emotion || 'Unlabeled')}</span>`,
-    `<span class="tag-chip">${escapeHtml(entry.audienceLabel || 'Private')}</span>`
+    `<span class="tag-chip">${escapeHtml(entry.audienceLabel || (entry.section === 'society' ? 'Public' : 'Private'))}</span>`
   ];
   if(entry.tags && entry.tags.length) metaItems.push(`<span class="tag-chip">#${escapeHtml(entry.tags[0])}</span>`);
   metaWrap.innerHTML = metaItems.join('');
 
   const metadataWrap = document.getElementById('exhibitMetadata');
+  const locationPieces = [escapeHtml(s.label || section)];
+  if(entry.location) locationPieces.push(escapeHtml(entry.location));
   metadataWrap.innerHTML = `
     <div><strong>Filed:</strong> ${fmtDate(entry.createdAt)}</div>
     <div><strong>Drawer:</strong> ${escapeHtml(s.label || section)}</div>
     <div><strong>Status:</strong> ${escapeHtml(entry.status || 'published')}</div>
     <div><strong>Favorite:</strong> ${entry.favorite ? 'Yes' : 'No'}</div>
   `;
+
+  document.getElementById('exhibitArtifactTag').textContent = entry.favorite ? 'Featured artifact' : 'Artifact';
+  document.getElementById('exhibitArtifactBadge').textContent = entry.favorite ? 'Favorite' : 'Curated';
+  document.getElementById('exhibitArtifactTitle').textContent = entry.title || 'Untitled memory';
+
+  const excerpt = entry.excerpt || entry.answers?.summary || Object.values(entry.answers || {})[0] || 'A distilled memory excerpt appears here to suggest the tone of the exhibit.';
+  document.getElementById('exhibitArtifactExcerpt').textContent = excerpt;
+
+  document.getElementById('exhibitCaption').textContent = entry.caption || entry.excerpt || (entry.contradiction ? 'The paradox of the memory offers a second frame of meaning.' : 'A quiet personal exhibit, reserved for reflection.');
+  document.getElementById('exhibitDate').textContent = fmtDate(entry.createdAt);
+  document.getElementById('exhibitLocation').textContent = entry.location ? `• ${escapeHtml(entry.location)}` : '';
 
   const storyWrap = document.getElementById('exhibitStory');
   const storyBlocks = Object.entries(entry.answers || {}).filter(([,v])=>v && v.trim()).map(([pk,v])=>{
@@ -1410,10 +1437,47 @@ function openMemoryExhibit(section, memoryId){
   document.getElementById('exhibitContradictionBlock').style.display = entry.contradiction ? 'block' : 'none';
   anchorWrap.innerHTML = entry.anchor ? `<p>${escapeHtml(entry.anchor)}</p>` : '';
   contradictionWrap.innerHTML = entry.contradiction ? `<p>${escapeHtml(entry.contradiction)}</p>` : '';
+}
+function openMemoryExhibit(section, memoryId, sourceEl = null){
+  exhibitEntries = getSectionExhibitEntries(section);
+  exhibitIndex = exhibitEntries.findIndex(e => e.id === memoryId);
+  const overlay = document.getElementById('exhibitOverlay');
+  if(!overlay) return;
 
+  if(sourceEl instanceof HTMLElement){
+    const rect = sourceEl.getBoundingClientRect();
+    const x = Math.min(90, Math.max(10, ((rect.left + rect.width / 2) / window.innerWidth) * 100));
+    const y = Math.min(90, Math.max(10, ((rect.top + rect.height / 2) / window.innerHeight) * 100));
+    overlay.style.setProperty('--exhibit-origin-x', `${x}%`);
+    overlay.style.setProperty('--exhibit-origin-y', `${y}%`);
+  } else {
+    overlay.style.removeProperty('--exhibit-origin-x');
+    overlay.style.removeProperty('--exhibit-origin-y');
+  }
+
+  exhibitLastFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
   overlay.classList.add('open');
   overlay.setAttribute('aria-hidden', 'false');
   document.body.style.overflow = 'hidden';
+
+  if(exhibitIndex === -1){
+    formatExhibitPreview(null, section);
+    updateExhibitNavControls();
+    document.getElementById('exhibitClose')?.focus();
+    return;
+  }
+
+  const entry = exhibitEntries[exhibitIndex];
+  renderMemoryArtifact(entry, section);
+  updateExhibitNavControls();
+  document.getElementById('exhibitClose')?.focus();
+}
+function navigateMemoryExhibit(offset){
+  if(exhibitIndex === -1) return;
+  const nextIndex = exhibitIndex + offset;
+  if(nextIndex < 0 || nextIndex >= exhibitEntries.length) return;
+  const nextEntry = exhibitEntries[nextIndex];
+  if(nextEntry) openMemoryExhibit(nextEntry.section, nextEntry.id);
 }
 
 function closeMemoryExhibit(){
@@ -1421,7 +1485,12 @@ function closeMemoryExhibit(){
   if(!overlay) return;
   overlay.classList.remove('open');
   overlay.setAttribute('aria-hidden', 'true');
+  overlay.style.removeProperty('--exhibit-origin');
   document.body.style.overflow = '';
+  if(exhibitLastFocused instanceof HTMLElement){
+    exhibitLastFocused.focus({ preventScroll:true });
+    exhibitLastFocused = null;
+  }
   return false;
 }
 
@@ -1430,6 +1499,9 @@ function initMemoryExhibit(){
   if(!overlay) return;
   const closeBtn = document.getElementById('exhibitClose');
   const backBtn = document.getElementById('exhibitBackBtn');
+  const prevBtn = document.getElementById('exhibitPrevBtn');
+  const nextBtn = document.getElementById('exhibitNextBtn');
+
   if(closeBtn){
     closeBtn.addEventListener('click', (e)=>{ e.stopPropagation(); closeMemoryExhibit(); });
     closeBtn.onclick = (e)=>{ e.stopPropagation(); closeMemoryExhibit(); };
@@ -1438,8 +1510,22 @@ function initMemoryExhibit(){
     backBtn.addEventListener('click', (e)=>{ e.stopPropagation(); closeMemoryExhibit(); });
     backBtn.onclick = (e)=>{ e.stopPropagation(); closeMemoryExhibit(); };
   }
+  if(prevBtn){
+    prevBtn.addEventListener('click', (e)=>{ e.stopPropagation(); navigateMemoryExhibit(-1); });
+    prevBtn.onclick = (e)=>{ e.stopPropagation(); navigateMemoryExhibit(-1); };
+  }
+  if(nextBtn){
+    nextBtn.addEventListener('click', (e)=>{ e.stopPropagation(); navigateMemoryExhibit(1); });
+    nextBtn.onclick = (e)=>{ e.stopPropagation(); navigateMemoryExhibit(1); };
+  }
+
   overlay.addEventListener('click', (e)=>{ if(e.target.id === 'exhibitOverlay') closeMemoryExhibit(); });
-  document.addEventListener('keydown', (e)=>{ if(e.key === 'Escape' && overlay.classList.contains('open')) closeMemoryExhibit(); });
+  document.addEventListener('keydown', (e)=>{
+    if(!overlay.classList.contains('open')) return;
+    if(e.key === 'Escape'){ closeMemoryExhibit(); return; }
+    if(e.key === 'ArrowLeft'){ navigateMemoryExhibit(-1); return; }
+    if(e.key === 'ArrowRight'){ navigateMemoryExhibit(1); return; }
+  });
 }
 
 function initMagnetic(){
